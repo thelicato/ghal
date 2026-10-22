@@ -3,7 +3,7 @@ package server
 import (
 	"sync"
 
-	"dbaui/internal/github"
+	"github.com/thelicato/ghal/internal/github"
 )
 
 // All browsers use the same connections and alert cache for this deployment.

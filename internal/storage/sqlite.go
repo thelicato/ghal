@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"dbaui/internal/github"
+	"github.com/thelicato/ghal/internal/github"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -23,6 +23,10 @@ type Store struct {
 	db   *sql.DB
 	aead cipher.AEAD
 }
+
+// These values identify the database format independently of application naming.
+const keyCheckID = "connection-store/key-check/v1"
+const keyCheckValue = "ok"
 
 // Open creates the database and a 32-byte encryption key on first use.
 // An existing database requires its original key; keys are never overwritten.
@@ -140,7 +144,7 @@ func (s *Store) initialize() error {
 	if err != nil {
 		return errors.New("could not initialize SQLite database")
 	}
-	check, err := s.encrypt("dbaui/key-check", "dbaui")
+	check, err := s.encrypt(keyCheckID, keyCheckValue)
 	if err != nil {
 		return err
 	}
@@ -151,9 +155,16 @@ func (s *Store) initialize() error {
 	if err := s.db.QueryRow(`SELECT value FROM metadata WHERE name = 'key-check'`).Scan(&stored); err != nil {
 		return errors.New("could not read database encryption metadata")
 	}
-	plain, err := s.decrypt("dbaui/key-check", stored)
-	if err != nil || plain != "dbaui" {
-		return errors.New("database encryption key does not match; restore the original key file")
+	plain, err := s.decrypt(keyCheckID, stored)
+	if err != nil || plain != keyCheckValue {
+		// Databases created before the rename used the old application name here.
+		plain, err = s.decrypt("dbaui/key-check", stored)
+		if err != nil || plain != "dbaui" {
+			return errors.New("database encryption key does not match; restore the original key file")
+		}
+		if _, err := s.db.Exec(`UPDATE metadata SET value = ? WHERE name = 'key-check'`, check); err != nil {
+			return errors.New("could not upgrade database encryption metadata")
+		}
 	}
 	return nil
 }

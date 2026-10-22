@@ -36,6 +36,14 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match VERSION (${expected})." >&2
             exit 1
           fi
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: make test
+      - name: Vet
+        run: go vet ./...
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
@@ -54,7 +62,7 @@ jobs:
           flavor: latest=false
           tags: |
             type=raw,value=${{ github.ref_name }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
       - name: Build and push container
         uses: docker/build-push-action@v7
         with:
@@ -69,6 +77,6 @@ jobs:
           provenance: true
           sbom: true
       - name: Create GitHub release
-        run: npx --yes changelogithub@15.0.5
+        run: npx --yes changelogithub@15.0.5 --to "$GITHUB_REF_NAME"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

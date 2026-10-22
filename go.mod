@@ -1,4 +1,4 @@
-module dbaui
+module github.com/thelicato/ghal
 
 go 1.25.0
 

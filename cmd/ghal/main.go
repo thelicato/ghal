@@ -13,15 +13,15 @@ import (
 	"syscall"
 	"time"
 
-	"dbaui/internal/github"
-	"dbaui/internal/server"
-	"dbaui/internal/storage"
+	"github.com/thelicato/ghal/internal/github"
+	"github.com/thelicato/ghal/internal/server"
+	"github.com/thelicato/ghal/internal/storage"
 )
 
 func main() {
-	addr := flag.String("addr", envOr("DBAUI_ADDR", "127.0.0.1:8080"), "HTTP listen address")
-	database := flag.String("db", envOr("DBAUI_DATABASE", "data/dbaui.db"), "SQLite database path")
-	keyFile := flag.String("key-file", os.Getenv("DBAUI_KEY_FILE"), "encryption key file (default: database path + .key)")
+	addr := flag.String("addr", envOr("GHAL_ADDR", "127.0.0.1:8080"), "HTTP listen address")
+	database := flag.String("db", envOr("GHAL_DATABASE", "data/ghal.db"), "SQLite database path")
+	keyFile := flag.String("key-file", os.Getenv("GHAL_KEY_FILE"), "encryption key file (default: database path + .key)")
 	healthcheck := flag.Bool("healthcheck", false, "check the running server and exit")
 	flag.Parse()
 	if *healthcheck {
@@ -56,7 +56,7 @@ func main() {
 			log.Printf("Shutdown: %v", err)
 		}
 	}()
-	log.Printf("dbaui (DependaBot Alerts UI) listening on %s", *addr)
+	log.Printf("ghal listening on %s", *addr)
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func checkHealth(addr string) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(u.String())
 	if err != nil {
-		return errors.New("dbaui healthcheck failed: server unreachable")
+		return errors.New("ghal healthcheck failed: server unreachable")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("dbaui healthcheck failed: server or SQLite unavailable")
+		return errors.New("ghal healthcheck failed: server or SQLite unavailable")
 	}
 	return nil
 }

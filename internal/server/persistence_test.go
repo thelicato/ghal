@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"dbaui/internal/github"
-	"dbaui/internal/storage"
+	"github.com/thelicato/ghal/internal/github"
+	"github.com/thelicato/ghal/internal/storage"
 )
 
 func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "dbaui.db")
+	path := filepath.Join(t.TempDir(), "ghal.db")
 	store, err := storage.Open(path, "")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 func TestDatabaseFailuresDoNotChangeLiveConfiguration(t *testing.T) {
 	for _, operation := range []string{"create", "delete"} {
 		t.Run(operation, func(t *testing.T) {
-			store, err := storage.Open(filepath.Join(t.TempDir(), "dbaui.db"), "")
+			store, err := storage.Open(filepath.Join(t.TempDir(), "ghal.db"), "")
 			if err != nil {
 				t.Fatal(err)
 			}

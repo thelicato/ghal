@@ -1,12 +1,12 @@
 services:
-  dbaui:
+  ghal:
     build: .
-    image: dbaui:local
+    image: ghal:local
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${DBAUI_PORT:-8080}:8080"
+      - "127.0.0.1:${GHAL_PORT:-8080}:8080"
     volumes:
-      - dbaui-data:/data
+      - ghal-data:/data
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -17,4 +17,4 @@ services:
     stop_grace_period: 15s
 
 volumes:
-  dbaui-data:
+  ghal-data:

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"dbaui/internal/github"
-	"dbaui/internal/storage"
+	"github.com/thelicato/ghal/internal/github"
+	"github.com/thelicato/ghal/internal/storage"
 )
 
 type fakeGitHub struct {
@@ -51,7 +51,7 @@ func request(handler http.Handler, method, path, body string, cookie *http.Cooki
 
 func newTestServer(t *testing.T, client GitHub) http.Handler {
 	t.Helper()
-	store, err := storage.Open(filepath.Join(t.TempDir(), "dbaui.db"), "")
+	store, err := storage.Open(filepath.Join(t.TempDir(), "ghal.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

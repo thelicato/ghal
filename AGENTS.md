@@ -1,6 +1,6 @@
 # Project instructions
 
-Build `dbaui` (DependaBot Alerts UI), a simple Go web application that aggregates GitHub Dependabot alerts.
+Build `ghal`, a simple Go web application that aggregates GitHub Dependabot alerts.
 
 ## Requirements
 

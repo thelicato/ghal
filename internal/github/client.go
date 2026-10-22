@@ -132,7 +132,7 @@ func (c *Client) getURL(ctx context.Context, token string, u *url.URL, dst any) 
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2026-03-10")
-	req.Header.Set("User-Agent", "dbaui")
+	req.Header.Set("User-Agent", "ghal")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", errors.New("could not reach GitHub, or the request timed out")

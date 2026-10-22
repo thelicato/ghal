@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"dbaui/internal/github"
-	"dbaui/internal/storage"
-	"dbaui/web"
+	"github.com/thelicato/ghal/internal/github"
+	"github.com/thelicato/ghal/internal/storage"
+	"github.com/thelicato/ghal/web"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"dbaui/internal/github"
+	"github.com/thelicato/ghal/internal/github"
 )
 
 func formRequest(handler http.Handler, path string, values url.Values, cookie *http.Cookie) *httptest.ResponseRecorder {

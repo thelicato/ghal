@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"dbaui/internal/github"
+	"github.com/thelicato/ghal/internal/github"
 )
 
 func demoPageData(r *http.Request) pageData {

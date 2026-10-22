@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"dbaui/internal/github"
+	"github.com/thelicato/ghal/internal/github"
 )
 
 func savedConnection(id string) github.Connection {
@@ -18,7 +18,7 @@ func savedConnection(id string) github.Connection {
 }
 
 func TestConnectionsSurviveReopenAndDelete(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "data", "dbaui.db")
+	path := filepath.Join(t.TempDir(), "data", "ghal.db")
 	store, err := Open(path, "")
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +56,47 @@ func TestConnectionsSurviveReopenAndDelete(t *testing.T) {
 	}
 }
 
-func TestTokensAreEncryptedAndFilesArePrivate(t *testing.T) {
+func TestDatabaseCreatedBeforeRenameStillDecryptsTokens(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dbaui.db")
+	store, err := Open(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := savedConnection("legacy-connection")
+	if err := store.Add(context.Background(), want); err != nil {
+		t.Fatal(err)
+	}
+	legacyCheck, err := store.encrypt("dbaui/key-check", "dbaui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE metadata SET value = ? WHERE name = 'key-check'`, legacyCheck); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(path, "")
+	if err != nil {
+		t.Fatal("existing database could not be opened after the rename:", err)
+	}
+	defer store.Close()
+	connections, err := store.List(context.Background())
+	if err != nil || len(connections) != 1 || !reflect.DeepEqual(connections[0], want) {
+		t.Fatal("existing PAT or connection metadata was lost")
+	}
+	var check []byte
+	if err := store.db.QueryRow(`SELECT value FROM metadata WHERE name = 'key-check'`).Scan(&check); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := store.decrypt(keyCheckID, check)
+	if err != nil || plain != keyCheckValue {
+		t.Fatal("legacy encryption metadata was not upgraded")
+	}
+}
+
+func TestTokensAreEncryptedAndFilesArePrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ghal.db")
 	store, err := Open(path, "")
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +138,7 @@ func TestTokensAreEncryptedAndFilesArePrivate(t *testing.T) {
 }
 
 func TestWrongOrMissingKeyFailsWithoutReplacingIt(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "dbaui.db")
+	path := filepath.Join(t.TempDir(), "ghal.db")
 	store, err := Open(path, "")
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +188,7 @@ func TestWrongOrMissingKeyFailsWithoutReplacingIt(t *testing.T) {
 func TestTamperedTokensAndSwappedRowsAreRejected(t *testing.T) {
 	for _, kind := range []string{"swapped", "modified", "truncated"} {
 		t.Run(kind, func(t *testing.T) {
-			store, err := Open(filepath.Join(t.TempDir(), "dbaui.db"), "")
+			store, err := Open(filepath.Join(t.TempDir(), "ghal.db"), "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -186,7 +225,7 @@ func TestTamperedTokensAndSwappedRowsAreRejected(t *testing.T) {
 func TestCustomKeyFileAndInvalidKey(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "keys", "token.key")
-	store, err := Open(filepath.Join(dir, "data", "dbaui.db"), keyPath)
+	store, err := Open(filepath.Join(dir, "data", "ghal.db"), keyPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +242,7 @@ func TestCustomKeyFileAndInvalidKey(t *testing.T) {
 }
 
 func TestStorageFailuresDoNotExposeTokens(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "dbaui.db"), "")
+	store, err := Open(filepath.Join(t.TempDir(), "ghal.db"), "")
 	if err != nil {
 		t.Fatal(err)
 	}

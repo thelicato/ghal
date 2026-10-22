@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"dbaui/internal/github"
+	"github.com/thelicato/ghal/internal/github"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -334,7 +334,7 @@ func writeCSV(w http.ResponseWriter, p pageData) {
 	}
 	writer.Flush()
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="dbaui-alerts.csv"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="ghal-alerts.csv"`)
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = buffer.WriteTo(w)
 }
