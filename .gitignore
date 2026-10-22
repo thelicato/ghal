@@ -1,0 +1,8 @@
+/bin/
+/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep
+*.log
+.env
+.env.*
+!.env.example

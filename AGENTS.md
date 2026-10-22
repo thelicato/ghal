@@ -1,6 +1,6 @@
 # Project instructions
 
-Build `dbaui`, a simple Go web application that aggregates GitHub Dependabot alerts.
+Build `dbaui` (DependaBot Alerts UI), a simple Go web application that aggregates GitHub Dependabot alerts.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ Build `dbaui`, a simple Go web application that aggregates GitHub Dependabot ale
 
 ## Workflow and writing
 
-- Work in meaningful, manageable atomic tasks. Avoid splitting work into trivial steps.
+- Work in substantial, cohesive tasks that deliver a usable feature or milestone. Group related implementation, UI, tests, and documentation into one task to avoid excessive commits.
 - Stop after completing each task and wait for the user to continue before starting the next task.
 - End each task with a concise description of the changes, relevant validation results, and a suggested conventional commit message.
 - Use normal hyphens instead of em dashes in code, documentation, UI text, and responses.
