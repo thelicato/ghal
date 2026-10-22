@@ -16,7 +16,7 @@
   </section>
   {{template "page-error" .}}
   {{template "source-errors" .}}
-  <section class="stats-grid" aria-label="Open alerts by severity">
+  <section class="stats-grid" aria-label="Open alert statistics">
     {{range .Summaries}}
     <a class="card stat-card severity-{{.Severity}}{{if .Selected}} selected{{end}}" href="{{.URL}}" {{if .Selected}}aria-current="true"{{end}}>
       <span class="stat-label"><span class="severity-dot"></span>{{label .Severity}}</span>
@@ -24,6 +24,11 @@
       <span class="stat-caption">Open alerts</span>
     </a>
     {{end}}
+    <div class="card stat-card repository-stat">
+      <span class="stat-label">Affected repositories</span>
+      <strong>{{.AffectedRepositories}}</strong>
+      <span class="stat-caption">With unaccepted open alerts</span>
+    </div>
   </section>
   <section class="card alerts-card" aria-label="Dependabot alerts">
     <div class="alerts-toolbar">

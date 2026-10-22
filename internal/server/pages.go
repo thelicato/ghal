@@ -92,6 +92,7 @@ type pageData struct {
 	Owners, Ecosystems                         []string
 	Summaries                                  []summaryView
 	Counts                                     map[string]int
+	AffectedRepositories                       int
 	Accepted                                   map[storage.AlertID]time.Time
 	Matches                                    []github.Alert
 	Rows                                       []alertView
@@ -284,6 +285,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 	}
 	owners, ecosystems := make(map[string]bool), make(map[string]bool)
 	severityCounts := make(map[string]int)
+	affectedRepositories := make(map[string]bool)
 	search := strings.ToLower(strings.TrimSpace(p.Filters.Query))
 	for _, alert := range result.Alerts {
 		_, isAccepted := accepted[storage.AlertKey(alert.Repository.FullName, alert.Number)]
@@ -299,6 +301,9 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 		}
 		if alert.State == "open" && !isAccepted {
 			severityCounts[alert.SecurityAdvisory.Severity]++
+			if repository := strings.ToLower(alert.Repository.FullName); repository != "" {
+				affectedRepositories[repository] = true
+			}
 		}
 		owners[alert.Repository.Owner.Login] = true
 		ecosystems[alert.Dependency.Package.Ecosystem] = true
@@ -326,6 +331,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 		}
 		p.Matches = append(p.Matches, alert)
 	}
+	p.AffectedRepositories = len(affectedRepositories)
 	for owner := range owners {
 		p.Owners = append(p.Owners, owner)
 	}

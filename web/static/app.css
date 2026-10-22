@@ -57,9 +57,9 @@ h2 { font-size: 18px; font-weight: 600; letter-spacing: -.2px; }
 .button[disabled], .button[aria-disabled="true"] { opacity: .45; pointer-events: none; }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 1px 2px #24302104; }
 .badge { display: inline-flex; align-items: center; gap: 6px; background: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 2px 8px; font-size: 13px; line-height: 1.6; font-weight: 500; color: #52614c; white-space: nowrap; }
-.stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin-bottom: 28px; }
+.stats-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; margin-bottom: 28px; }
 .stat-card { padding: 18px 22px; transition: border-color .15s; }
-.stat-card:hover { border-color: #a4b498; }
+a.stat-card:hover { border-color: #a4b498; }
 .stat-card.selected { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
 .stat-label { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 550; }
 .stat-card > strong { display: block; font-size: 34px; line-height: 1.2; font-weight: 600; margin: 10px 0 5px; letter-spacing: -.7px; }
@@ -178,7 +178,8 @@ tbody tr:hover { background: #fdfefa; }
   .header-inner { padding: 0 24px; gap: 38px; }
   .container { padding: 28px 24px; }
   .page-heading { flex-wrap: wrap; gap: 18px; }
-  .stats-grid { gap: 12px; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .repository-stat { grid-column: 1 / -1; }
   .stat-card { padding: 16px; }
   .connections-layout { grid-template-columns: 1fr; }
   .connection-form { order: -1; }
@@ -194,7 +195,6 @@ tbody tr:hover { background: #fdfefa; }
   .page-meta { font-size: 13px; line-height: 1.8; }
   .heading-actions { gap: 8px; }
   .heading-actions .button { font-size: 13px; padding: 8px 11px; }
-  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stat-label { font-size: 14px; }
   .stat-card > strong { font-size: 30px; }
   .alerts-toolbar { flex-wrap: wrap; padding: 0 15px 14px; gap: 0; }
