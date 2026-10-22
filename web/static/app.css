@@ -113,6 +113,7 @@ tbody tr:hover { background: #fdfefa; }
 .vulnerability-summary { display: block; margin-top: 6px; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
 .repository-name { display: block; font-family: ui-monospace, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .manifest-path { display: block; color: var(--muted-foreground); font-size: 13px; margin-top: 5px; overflow-wrap: anywhere; }
+.alert-connections { display: grid; gap: 6px; min-width: 100px; overflow-wrap: anywhere; }
 .alert-state { display: flex; align-items: center; gap: 7px; padding-top: 3px; font-size: 13px; white-space: nowrap; }
 .state-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #939c89; flex-shrink: 0; }
 .state-open .state-dot { background: #6b9454; }
@@ -171,7 +172,7 @@ tbody tr:hover { background: #fdfefa; }
   .filters { flex-wrap: wrap; }
   .search-field { flex-basis: calc(100% - 200px); }
   .filters .field:not(.search-field) { flex: 1; }
-  table { min-width: 960px; }
+  table { min-width: 1100px; }
 }
 @media (max-width: 800px) {
   .header-inner { padding: 0 24px; gap: 38px; }

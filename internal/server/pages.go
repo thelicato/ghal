@@ -38,6 +38,7 @@ type alertView struct {
 	Link, Updated, UpdatedTitle string
 	AcceptedAt                  time.Time
 	Selected                    bool
+	ConnectionLabels            []string
 }
 
 func (a alertView) Accepted() bool { return !a.AcceptedAt.IsZero() }
@@ -62,7 +63,7 @@ type sortHeader struct {
 func (p pageData) SortHeaders() []sortHeader {
 	var headers []sortHeader
 	for _, column := range []struct{ key, label string }{
-		{"dependency", "Dependency / vulnerability"}, {"repository", "Repository"},
+		{"dependency", "Dependency / vulnerability"}, {"repository", "Repository"}, {"connection", "Connection"},
 		{"severity", "Severity"}, {"state", "State"}, {"updated", "Updated"},
 	} {
 		order := p.SortOrder(column.key)
@@ -140,7 +141,7 @@ func readFilters(r *http.Request) filters {
 	}
 	page, _ := strconv.Atoi(q.Get("page"))
 	column := q.Get("sort")
-	if !slices.Contains([]string{"dependency", "repository", "severity", "state", "updated"}, column) {
+	if !slices.Contains([]string{"dependency", "repository", "connection", "severity", "state", "updated"}, column) {
 		column = "severity"
 	}
 	direction := q.Get("direction")
@@ -234,6 +235,32 @@ func githubLink(value string) string {
 	return u.String()
 }
 
+func connectionLabels(alert github.Alert, labels map[string]string) []string {
+	names := make([]string, 0, len(alert.ConnectionIDs))
+	seen := make(map[string]bool, len(alert.ConnectionIDs))
+	for _, id := range alert.ConnectionIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		name := labels[id]
+		if name == "" {
+			name = "Unknown connection"
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return []string{"Unknown connection"}
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		if order := strings.Compare(strings.ToLower(a), strings.ToLower(b)); order != 0 {
+			return order
+		}
+		return strings.Compare(a, b)
+	})
+	return names
+}
+
 func makePage(r *http.Request, connections []github.Connection, result github.Result, loaded, refreshing bool, accepted map[storage.AlertID]time.Time) pageData {
 	p := pageData{
 		Title: "Dependabot alerts", View: "alerts", BasePath: "/", Filters: readFilters(r),
@@ -307,7 +334,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 	}
 	sort.Strings(p.Owners)
 	sort.Strings(p.Ecosystems)
-	sortAlerts(p.Matches, p.Filters, accepted)
+	sortAlerts(p.Matches, p.Filters, accepted, p.SourceLabels)
 	for _, severity := range []string{"critical", "high", "medium", "low"} {
 		p.Summaries = append(p.Summaries, summaryView{severity, severityCounts[severity], p.Filters.Severity == severity, p.URL("stat", severity)})
 	}
@@ -319,6 +346,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 		p.Start = (p.Page-1)*pageSize + 1
 		for _, alert := range p.Matches[p.Start-1 : p.End] {
 			view := alertView{Alert: alert, Link: githubLink(alert.HTMLURL), Updated: "Unknown", AcceptedAt: accepted[storage.AlertKey(alert.Repository.FullName, alert.Number)]}
+			view.ConnectionLabels = connectionLabels(alert, p.SourceLabels)
 			if updated, err := time.Parse(time.RFC3339, alert.UpdatedAt); err == nil {
 				view.Updated = updated.Format("02 Jan 2006")
 				view.UpdatedTitle = updated.UTC().Format("02 Jan 2006 15:04 UTC")
@@ -329,7 +357,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 	return p
 }
 
-func sortAlerts(alerts []github.Alert, f filters, accepted map[storage.AlertID]time.Time) {
+func sortAlerts(alerts []github.Alert, f filters, accepted map[storage.AlertID]time.Time, labels map[string]string) {
 	severity := map[string]int{"critical": 4, "high": 3, "medium": 2, "low": 1}
 	textCompare := func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) }
 	updated := func(value string) time.Time {
@@ -345,6 +373,12 @@ func sortAlerts(alerts []github.Alert, f filters, accepted map[storage.AlertID]t
 		}
 		return a.State
 	}
+	connectionKeys := make(map[storage.AlertID]string)
+	if f.Sort == "connection" {
+		for _, alert := range alerts {
+			connectionKeys[storage.AlertKey(alert.Repository.FullName, alert.Number)] = strings.ToLower(strings.Join(connectionLabels(alert, labels), "\x00"))
+		}
+	}
 	slices.SortStableFunc(alerts, func(a, b github.Alert) int {
 		var order int
 		switch f.Sort {
@@ -352,6 +386,8 @@ func sortAlerts(alerts []github.Alert, f filters, accepted map[storage.AlertID]t
 			order = textCompare(a.Dependency.Package.Name, b.Dependency.Package.Name)
 		case "repository":
 			order = textCompare(a.Repository.FullName, b.Repository.FullName)
+		case "connection":
+			order = strings.Compare(connectionKeys[storage.AlertKey(a.Repository.FullName, a.Number)], connectionKeys[storage.AlertKey(b.Repository.FullName, b.Number)])
 		case "severity":
 			order = cmp.Compare(severity[a.SecurityAdvisory.Severity], severity[b.SecurityAdvisory.Severity])
 		case "state":
@@ -464,7 +500,7 @@ func writeCSV(w http.ResponseWriter, p pageData) {
 	// Stage the complete file before writing headers, and escape spreadsheet formulas.
 	var buffer bytes.Buffer
 	writer := csv.NewWriter(&buffer)
-	_ = writer.Write([]string{"Repository", "Package", "Ecosystem", "Severity", "State", "Summary", "Advisory", "Fixed version", "URL", "Risk accepted", "Accepted at"})
+	_ = writer.Write([]string{"Repository", "Package", "Ecosystem", "Severity", "State", "Summary", "Advisory", "Fixed version", "URL", "Risk accepted", "Accepted at", "Connection"})
 	for _, alert := range p.Matches {
 		advisory := alert.SecurityAdvisory.CVEID
 		if advisory == "" {
@@ -478,7 +514,7 @@ func writeCSV(w http.ResponseWriter, p pageData) {
 		if timestamp, ok := p.Accepted[storage.AlertKey(alert.Repository.FullName, alert.Number)]; ok {
 			accepted, at = "Yes", timestamp.UTC().Format(time.RFC3339)
 		}
-		row := []string{alert.Repository.FullName, alert.Dependency.Package.Name, alert.Dependency.Package.Ecosystem, alert.SecurityAdvisory.Severity, alert.State, alert.SecurityAdvisory.Summary, advisory, patch, githubLink(alert.HTMLURL), accepted, at}
+		row := []string{alert.Repository.FullName, alert.Dependency.Package.Name, alert.Dependency.Package.Ecosystem, alert.SecurityAdvisory.Severity, alert.State, alert.SecurityAdvisory.Summary, advisory, patch, githubLink(alert.HTMLURL), accepted, at, strings.Join(connectionLabels(alert, p.SourceLabels), "; ")}
 		for i, value := range row {
 			trimmed := strings.TrimSpace(value)
 			if strings.HasPrefix(value, "\t") || strings.HasPrefix(value, "\r") || strings.HasPrefix(value, "\n") || (trimmed != "" && strings.ContainsRune("=+-@", rune(trimmed[0]))) {

@@ -20,19 +20,22 @@ func TestSortColumnsInBothDirections(t *testing.T) {
 	b := pageAlert("Alpha", "Zeta/repo", "medium", "open")
 	c := pageAlert("middle", "middle/repo", "high", "dismissed")
 	a.Number, b.Number, c.Number = 1, 2, 3
+	a.ConnectionIDs, b.ConnectionIDs, c.ConnectionIDs = []string{"first"}, []string{"second"}, []string{"third"}
+	connections := []github.Connection{{ID: "first", Label: "Zeta"}, {ID: "second", Label: "middle"}, {ID: "third", Label: "Alpha"}}
 	a.UpdatedAt, b.UpdatedAt, c.UpdatedAt = "2026-10-22T12:00:00Z", "2026-10-22T11:30:00-02:00", "2026-10-21T10:00:00Z"
 	for _, test := range []struct {
 		column string
 		want   []int
 	}{
 		{"dependency", []int{2, 3, 1}}, {"repository", []int{1, 3, 2}},
+		{"connection", []int{3, 2, 1}},
 		{"severity", []int{2, 3, 1}}, {"state", []int{3, 1, 2}}, {"updated", []int{3, 1, 2}},
 	} {
 		for _, direction := range []string{"asc", "desc"} {
 			t.Run(test.column+"/"+direction, func(t *testing.T) {
 				result := github.Result{Alerts: []github.Alert{a, b, c}}
 				r := httptest.NewRequest("GET", "/?state=all&sort="+test.column+"&direction="+direction, nil)
-				p := makePage(r, nil, result, true, false, nil)
+				p := makePage(r, connections, result, true, false, nil)
 				var got []int
 				for _, row := range p.Rows {
 					got = append(got, row.Number)

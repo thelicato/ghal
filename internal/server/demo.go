@@ -33,6 +33,10 @@ func demoPageData(r *http.Request) pageData {
 				break
 			}
 		}
+		alert.ConnectionIDs = []string{"demo-work"}
+		if alert.Repository.Owner.Login == "octocat" {
+			alert.ConnectionIDs = []string{"demo-personal"}
+		}
 		alert.Dependency.Package.Name, alert.Dependency.Package.Ecosystem = sample.pkg, sample.ecosystem
 		alert.Dependency.ManifestPath = map[string]string{"go": "go.mod", "pip": "requirements.txt", "rubygems": "Gemfile.lock", "npm": "package-lock.json"}[sample.ecosystem]
 		alert.Dependency.Scope = "runtime"

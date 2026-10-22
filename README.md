@@ -35,6 +35,7 @@ docker run -d --name ghal -p 127.0.0.1:8080:8080 -v ghal-data:/data ghal
 - Deduplicate alerts shared by multiple connections and retain the newest version.
 - Search packages, repositories, advisories, and CVEs. Filter by severity, state, source, and ecosystem.
 - Click a column heading to sort in either direction. Sorting applies across all pages and to CSV exports.
+- See each alert's connection names in a sortable column and in CSV exports, including all connections when an alert is shared.
 - Accept individual or selected alert risks locally and reopen them from the Accepted view. Decisions are shared across the deployment and survive restarts.
 - Inspect vulnerable versions and available patches, open alerts on GitHub, and export the filtered results to CSV.
 - Show per-source failures and preserve successfully fetched pages when another page or source fails.

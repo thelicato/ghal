@@ -75,6 +75,7 @@
               </details>
             </td>
             <td><span class="repository-name">{{.Repository.FullName}}</span><span class="manifest-path">{{.Dependency.ManifestPath}}</span></td>
+            <td><div class="alert-connections">{{range .ConnectionLabels}}<span>{{.}}</span>{{end}}</div></td>
             <td><span class="badge severity-badge severity-{{.SecurityAdvisory.Severity}}"><span class="severity-dot"></span>{{label .SecurityAdvisory.Severity}}</span></td>
             <td>{{if .Accepted}}<span class="badge accepted-badge">Accepted</span><span class="github-state">GitHub: {{label .State}}</span>{{else}}<span class="alert-state state-{{.State}}"><span class="state-dot"></span>{{label .State}}</span>{{end}}</td>
             <td class="updated-cell"><time datetime="{{.UpdatedAt}}" title="{{.UpdatedTitle}}">{{.Updated}}</time></td>
