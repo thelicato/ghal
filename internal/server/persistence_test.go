@@ -19,6 +19,9 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &fakeGitHub{fetch: func(ctx context.Context, connections []github.Connection) github.Result {
+		if len(connections) == 0 {
+			return github.Result{}
+		}
 		if len(connections) != 1 || connections[0].Token != "persistent-test-secret" {
 			t.Error("restored PAT did not reach the GitHub client")
 		}
@@ -28,12 +31,14 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(handler.Close)
 	created := request(handler, "POST", "/api/connections", `{"label":"Saved work","token":"persistent-test-secret","accounts":["octocat"],"organizations":["acme"]}`, nil)
 	if created.Code != 201 {
 		t.Fatalf("connection was not saved: %d", created.Code)
 	}
 	var conn github.Connection
 	_ = json.Unmarshal(created.Body.Bytes(), &conn)
+	handler.Close()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +51,7 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(handler.Close)
 	listing := request(handler, "GET", "/api/connections", "", nil)
 	if !strings.Contains(listing.Body.String(), "Saved work") || strings.Contains(listing.Body.String(), "persistent-test-secret") {
 		t.Fatal("connection was not restored or listing exposes its PAT")
@@ -53,6 +59,7 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 	if len(listing.Result().Cookies()) != 0 {
 		t.Fatal("shared connections still depend on a browser session cookie")
 	}
+	waitForRefresh(t, handler)
 	res := request(handler, "GET", "/api/alerts", "", browserCookie())
 	if res.Code != 200 || !strings.Contains(res.Body.String(), "restored-package") || strings.Contains(res.Body.String(), "persistent-test-secret") {
 		t.Fatal("restored connection could not fetch alerts safely")
@@ -61,6 +68,7 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 	if res.Code != 204 {
 		t.Fatal("restored connection could not be deleted")
 	}
+	handler.Close()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +81,7 @@ func TestSavedConnectionsAndPATsWorkAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(handler.Close)
 	listing = request(handler, "GET", "/api/connections", "", nil)
 	if strings.TrimSpace(listing.Body.String()) != "[]" {
 		t.Fatal("deleted connection reappeared after restart")
@@ -91,10 +100,12 @@ func TestDatabaseFailuresDoNotChangeLiveConfiguration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer handler.Close()
 			var conn github.Connection
 			if operation == "delete" {
 				res := request(handler, "POST", "/api/connections", `{"label":"Saved","token":"test-secret"}`, nil)
 				_ = json.Unmarshal(res.Body.Bytes(), &conn)
+				waitForRefresh(t, handler)
 			}
 			_ = store.Close()
 			var status int

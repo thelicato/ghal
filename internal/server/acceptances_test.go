@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/csv"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -40,7 +39,9 @@ func TestAcceptIndividualAlertRefreshRestartAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(handler.Close)
 	formRequest(handler, "/connections", url.Values{"token": {"test-secret"}}, nil)
+	waitForRefresh(t, handler)
 	query := "?state=all&sort=dependency&direction=desc&q=package&page=2"
 	res := formRequest(handler, "/alerts/accept"+query, acceptanceForm("OCTOCAT/Project", "1"), nil)
 	if res.Code != 303 || res.Header().Get("Location") != "/"+query {
@@ -74,6 +75,7 @@ func TestAcceptIndividualAlertRefreshRestartAndReopen(t *testing.T) {
 	if fetches.Load() != 1 {
 		t.Fatal("accepting or viewing alerts repeated a GitHub fetch")
 	}
+	refreshAndWait(t, handler)
 	res = request(handler, "GET", "/api/alerts", "", nil)
 	if res.Code != 200 || !strings.Contains(res.Body.String(), "accepted-package") || strings.Contains(res.Body.String(), "accepted_at") {
 		t.Fatal("local acceptance changed the raw GitHub response")
@@ -81,6 +83,7 @@ func TestAcceptIndividualAlertRefreshRestartAndReopen(t *testing.T) {
 	if res = request(handler, "GET", "/?state=accepted", "", nil); !strings.Contains(res.Body.String(), "accepted-package") {
 		t.Fatal("refresh lost local acceptance")
 	}
+	handler.Close()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +95,8 @@ func TestAcceptIndividualAlertRefreshRestartAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	formRequest(handler, "/refresh", nil, nil)
+	t.Cleanup(handler.Close)
+	waitForRefresh(t, handler)
 	if res = request(handler, "GET", "/?state=accepted", "", nil); !strings.Contains(res.Body.String(), "accepted-package") {
 		t.Fatal("restart lost local acceptance")
 	}
@@ -125,7 +129,8 @@ func TestAcceptanceValidationAndFailedWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request(handler, "GET", "/api/alerts", "", nil)
+	defer handler.Close()
+	refreshAndWait(t, handler)
 	for _, test := range []struct {
 		values url.Values
 		status int
@@ -167,7 +172,8 @@ func TestFailedReopenPreservesAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request(handler, "GET", "/api/alerts", "", nil)
+	defer handler.Close()
+	refreshAndWait(t, handler)
 	_ = store.Close()
 	res := formRequest(handler, "/alerts/reopen", acceptanceForm("octocat/project", "1"), nil)
 	if res.Code != 500 {
@@ -189,14 +195,13 @@ func TestAcceptanceDuringRefreshSurvivesNewResults(t *testing.T) {
 		return github.Result{Alerts: []github.Alert{pageAlert("accepted-package", "octocat/project", "high", "open")}}
 	}}
 	handler := newTestServer(t, client)
-	request(handler, "GET", "/api/alerts", "", nil)
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- request(handler, "GET", "/api/alerts", "", nil) }()
+	refreshAndWait(t, handler)
+	refreshed := request(handler, "POST", "/api/refresh", "", nil)
 	<-started
 	res := formRequest(handler, "/alerts/accept", acceptanceForm("octocat/project", "1"), nil)
 	close(release)
-	refreshed := <-done
-	if res.Code != 303 || refreshed.Code != 200 {
+	waitForRefresh(t, handler)
+	if res.Code != 303 || refreshed.Code != 202 {
 		t.Fatalf("acceptance conflicted with refresh: accept=%d refresh=%d", res.Code, refreshed.Code)
 	}
 	if res = request(handler, "GET", "/?state=accepted", "", nil); !strings.Contains(res.Body.String(), "accepted-package") {

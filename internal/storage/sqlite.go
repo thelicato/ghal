@@ -246,5 +246,15 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdateVerifiedConnection saves resolved defaults without rewriting the encrypted PAT.
+func (s *Store) UpdateVerifiedConnection(ctx context.Context, conn github.Connection) error {
+	accounts, _ := json.Marshal(conn.Accounts)
+	_, err := s.db.ExecContext(ctx, `UPDATE connections SET label = ?, login = ?, accounts = ? WHERE id = ?`, conn.Label, conn.Login, string(accounts), conn.ID)
+	if err != nil {
+		return errors.New("could not save verified connection")
+	}
+	return nil
+}
+
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 func (s *Store) Close() error                   { return s.db.Close() }

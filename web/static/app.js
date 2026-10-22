@@ -1,4 +1,4 @@
-// Forms and navigation work without JavaScript. This only adds submit feedback.
+// Forms work without JavaScript. GitHub work runs independently on the server.
 document.querySelectorAll("form[data-pending]").forEach((form) => {
   form.addEventListener("submit", (event) => {
     if (form.dataset.submitting) {
@@ -31,3 +31,54 @@ window.addEventListener("pageshow", () => {
     if (status) status.textContent = "";
   });
 });
+
+const syncStatus = document.querySelector("[data-sync-status]");
+if (syncStatus) {
+  const initialVersion = syncStatus.dataset.version;
+  const message = syncStatus.querySelector("[data-sync-message]");
+  const reload = syncStatus.querySelector("[data-sync-reload]");
+  let edited = false;
+  let submitting = false;
+  let wasRefreshing = syncStatus.dataset.refreshing === "true";
+  document.addEventListener("input", () => { edited = true; });
+  document.addEventListener("change", () => { edited = true; });
+  document.addEventListener("submit", () => { submitting = true; });
+  window.addEventListener("pageshow", () => { submitting = false; });
+
+  async function checkRefresh() {
+    let delay = wasRefreshing ? 2000 : 10000;
+    try {
+      const response = await fetch("/api/status", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error("Status unavailable");
+      const status = await response.json();
+      if (status.refreshing) {
+        wasRefreshing = true;
+        delay = 2000;
+        syncStatus.hidden = false;
+        message.textContent = "Refreshing alerts in the background. You can keep using this page.";
+        reload.hidden = true;
+      } else if (wasRefreshing || String(status.version) !== initialVersion) {
+        if (!edited && !submitting) {
+          window.location.reload();
+          return;
+        }
+        syncStatus.hidden = false;
+        message.textContent = "Refresh complete. Updated results are available.";
+        reload.hidden = false;
+        return;
+      } else {
+        syncStatus.hidden = true;
+      }
+    } catch {
+      syncStatus.hidden = false;
+      message.textContent = "Could not check refresh status. Reload this page to check the results.";
+      reload.hidden = false;
+      delay = 10000;
+    }
+    window.setTimeout(checkRefresh, delay);
+  }
+  window.setTimeout(checkRefresh, wasRefreshing ? 1000 : 10000);
+}

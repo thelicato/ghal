@@ -7,8 +7,8 @@
     </div>
     <div class="heading-actions">
       {{if .Demo}}<a class="button button-outline" href="/">Exit demo</a>{{else}}
-      <form method="post" action="{{.RefreshURL}}" data-pending="Refreshing...">
-        <button class="button button-outline" type="submit" {{if or .Refreshing (not .Connections)}}disabled{{end}}>{{template "icon-refresh"}}<span>{{if .Refreshing}}Refreshing...{{else}}Refresh alerts{{end}}</span></button>
+      <form method="post" action="{{.RefreshURL}}" data-pending="Requesting refresh...">
+        <button class="button button-outline" type="submit" {{if or .Refreshing (not .Connections)}}disabled{{end}}>{{template "icon-refresh"}}<span>{{if .Refreshing}}Refresh in progress{{else}}Refresh alerts{{end}}</span></button>
       </form>
       {{end}}
       <a class="button" href="/connections#add-connection">{{template "icon-plus"}}Add connection</a>
@@ -94,6 +94,7 @@
     {{else}}
     <div class="empty-state">
       {{if not .Connections}}<h2>No connections configured</h2><p>Add a GitHub PAT and the accounts or organizations to fetch alerts from.</p><div class="empty-actions"><a class="button" href="/connections#add-connection">Add connection</a><a class="text-link" href="/demo">View sample alerts</a></div>
+      {{else if and .Refreshing (not .Loaded)}}<h2>Fetching alerts in the background</h2><p>You can leave this page and return when the refresh is complete.</p>
       {{else if not .Loaded}}<h2>Alerts haven't been fetched yet</h2><p>Use Refresh alerts to load the configured sources.</p>
       {{else if .Errors}}<h2>No alerts to display</h2><p>Review the source issues above to see what could not be loaded.</p>
       {{else}}<h2>No matching alerts</h2><p>Try a different state or <a class="text-link" href="{{.BasePath}}?state={{.Filters.State}}">clear the filters</a>.</p>{{end}}

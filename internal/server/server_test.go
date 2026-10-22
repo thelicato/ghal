@@ -18,11 +18,15 @@ import (
 
 type fakeGitHub struct {
 	loginCalls atomic.Int32
+	login      func(context.Context, string) (string, error)
 	fetch      func(context.Context, []github.Connection) github.Result
 }
 
 func (f *fakeGitHub) Login(ctx context.Context, token string) (string, error) {
 	f.loginCalls.Add(1)
+	if f.login != nil {
+		return f.login(ctx, token)
+	}
 	if token == "invalid" {
 		return "", &github.APIError{Status: 401}
 	}
@@ -49,7 +53,7 @@ func request(handler http.Handler, method, path, body string, cookie *http.Cooki
 	return rec
 }
 
-func newTestServer(t *testing.T, client GitHub) http.Handler {
+func newTestServer(t *testing.T, client GitHub) *Server {
 	t.Helper()
 	store, err := storage.Open(filepath.Join(t.TempDir(), "ghal.db"), "")
 	if err != nil {
@@ -60,7 +64,39 @@ func newTestServer(t *testing.T, client GitHub) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(handler.Close)
 	return handler
+}
+
+func waitForRefresh(t *testing.T, handler http.Handler) {
+	t.Helper()
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		res := request(handler, "GET", "/api/status", "", nil)
+		var status syncStatus
+		if err := json.Unmarshal(res.Body.Bytes(), &status); err != nil {
+			t.Fatal(err)
+		}
+		if !status.Refreshing {
+			return
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatal("background refresh did not finish")
+		}
+	}
+}
+
+func refreshAndWait(t *testing.T, handler http.Handler) {
+	t.Helper()
+	if res := request(handler, "POST", "/api/refresh", "", nil); res.Code != http.StatusAccepted {
+		t.Fatalf("refresh was not queued: %d", res.Code)
+	}
+	waitForRefresh(t, handler)
 }
 
 func browserCookie() *http.Cookie { return &http.Cookie{Name: "test-browser", Value: rand.Text()} }
@@ -77,7 +113,7 @@ func TestConnectionLifecycleAndDeploymentSharing(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &connection); err != nil {
 		t.Fatal(err)
 	}
-	if connection.ID == "" || connection.Label != "Work" || len(connection.Accounts) != 1 || connection.Login != "octocat" {
+	if connection.ID == "" || connection.Label != "Work" || len(connection.Accounts) != 1 || connection.Login != "" {
 		t.Fatalf("unexpected connection: %+v", connection)
 	}
 	if strings.Contains(res.Body.String(), "test-secret") || strings.Contains(res.Body.String(), `"token"`) {
@@ -108,14 +144,28 @@ func TestConnectionDefaultsAndTokenValidation(t *testing.T) {
 	handler := newTestServer(t, &fakeGitHub{})
 	cookie := browserCookie()
 	res := request(handler, "POST", "/api/connections", `{"token":"test-secret"}`, cookie)
+	if res.Code != 201 {
+		t.Fatalf("connection was not saved: %d", res.Code)
+	}
+	waitForRefresh(t, handler)
+	res = request(handler, "GET", "/api/connections", "", cookie)
+	var connections []github.Connection
+	_ = json.Unmarshal(res.Body.Bytes(), &connections)
 	var connection github.Connection
-	_ = json.Unmarshal(res.Body.Bytes(), &connection)
-	if res.Code != 201 || connection.Label != "octocat" || len(connection.Accounts) != 1 || connection.Accounts[0] != "octocat" {
+	if len(connections) != 1 {
+		t.Fatal("saved connection missing")
+	}
+	connection = connections[0]
+	if connection.Label != "octocat" || len(connection.Accounts) != 1 || connection.Accounts[0] != "octocat" {
 		t.Fatalf("authenticated account was not used by default: %+v", connection)
 	}
 	res = request(handler, "POST", "/api/connections", `{"token":"invalid"}`, cookie)
-	if res.Code != 422 {
-		t.Fatalf("invalid token should be rejected: status=%d", res.Code)
+	if res.Code != 201 {
+		t.Fatalf("token should be verified in the background: status=%d", res.Code)
+	}
+	waitForRefresh(t, handler)
+	if res = request(handler, "GET", "/connections", "", nil); !strings.Contains(res.Body.String(), "GitHub rejected this token") {
+		t.Fatal("background token failure was not displayed")
 	}
 	res = request(handler, "POST", "/api/connections", `{"token":"test-secret","organizations":["acme"]}`, cookie)
 	_ = json.Unmarshal(res.Body.Bytes(), &connection)
@@ -167,6 +217,7 @@ func TestAlertsUseSharedCredentialsWithoutExposingTokens(t *testing.T) {
 	handler := newTestServer(t, client)
 	first, second := browserCookie(), browserCookie()
 	request(handler, "POST", "/api/connections", `{"token":"test-secret"}`, first)
+	waitForRefresh(t, handler)
 	res := request(handler, "GET", "/api/alerts", "", first)
 	if res.Code != 200 || fetched != 1 || strings.Contains(res.Body.String(), "test-secret") {
 		t.Fatal("alert fetch did not use saved credentials or exposed a token")
@@ -177,23 +228,30 @@ func TestAlertsUseSharedCredentialsWithoutExposingTokens(t *testing.T) {
 	}
 }
 
-func TestConcurrentRefreshIsRejected(t *testing.T) {
+func TestConcurrentRefreshRequestsShareBackgroundJob(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	var calls atomic.Int32
 	client := &fakeGitHub{fetch: func(ctx context.Context, connections []github.Connection) github.Result {
-		close(started)
-		<-release
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
 		return github.Result{}
 	}}
 	handler := newTestServer(t, client)
 	cookie := browserCookie()
-	done := make(chan struct{})
-	go func() { defer close(done); request(handler, "GET", "/api/alerts", "", cookie) }()
+	first := request(handler, "POST", "/api/refresh", "", cookie)
 	<-started
-	res := request(handler, "GET", "/api/alerts", "", cookie)
-	close(release)
-	<-done
-	if res.Code != 409 {
-		t.Fatalf("overlapping refresh was accepted: %d", res.Code)
+	res := request(handler, "POST", "/api/refresh", "", cookie)
+	if first.Code != 202 || res.Code != 202 || calls.Load() != 1 {
+		t.Fatalf("overlapping refreshes did not share a job: first=%d second=%d calls=%d", first.Code, res.Code, calls.Load())
+	}
+	if res = request(handler, "GET", "/api/alerts", "", cookie); res.Code != 200 {
+		t.Fatal("cached alerts were unavailable during refresh")
 	}
 }
 

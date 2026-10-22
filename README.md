@@ -38,9 +38,10 @@ docker run -d --name ghal -p 127.0.0.1:8080:8080 -v ghal-data:/data ghal
 - Accept individual alert risks locally and reopen them from the Accepted view. Decisions are shared across the deployment and survive restarts.
 - Inspect vulnerable versions and available patches, open alerts on GitHub, and export the filtered results to CSV.
 - Show per-source failures and preserve successfully fetched pages when another page or source fails.
-- Render pages, submit connection forms, filter, paginate, and export CSV without JavaScript. A small optional script adds submit feedback.
+- Save connections and refresh alerts in the background without blocking page navigation.
+- Render pages, submit connection forms, filter, paginate, and export CSV without JavaScript. A small optional script checks background status and updates the page when work completes, preserving unsaved form edits.
 
-Adding or removing a connection refreshes the cached alerts. Use **Refresh alerts** to fetch changes from GitHub. Search, filters, pagination, and CSV export use the deployment's latest result without repeating GitHub requests. Changing connections invalidates that result; an in-flight refresh cannot restore alerts from a disconnected source. Alerts are cached in memory, so refresh them after restarting the application.
+Adding a connection saves it immediately, then verifies its PAT and fetches alerts in the background. Verification failures appear in the alert dashboard and on Connections; use **Refresh alerts** to retry, or disconnect and add a replacement token. Removing a connection also starts a background refresh. Search, filters, pagination, and CSV export keep using cached alerts during a refresh. Disconnected sources are removed from the cache immediately, and connection changes cancel obsolete work and fetch the latest configuration. Alerts are cached in memory and fetched automatically on startup when saved connections exist. Background jobs continue if you navigate away and are cancelled when the application shuts down.
 
 **Accept risk** records a decision in ghal without dismissing the alert on GitHub. Accepted alerts leave the Open view and severity counts but remain in Accepted and All, with their original GitHub state visible. Fixed and Dismissed still show their respective GitHub states, including previously accepted alerts. Reopen removes local acceptance. Decisions follow the repository and alert number across PATs, refreshes, and reconnections; other alerts for the same vulnerability remain unaffected. CSV exports include acceptance status and time. The JSON alerts endpoint continues to return GitHub data without local acceptance metadata. Sample alerts cannot be accepted.
 
@@ -78,7 +79,9 @@ go run ./cmd/ghal
 
 Go's `html/template` renders the pages in `web/templates/`. Styles and the optional script live in `web/static/`. Both are embedded in the Go binary. Restart `go run` or rebuild the binary after changing them.
 
-The only Go dependencies are chi and `mattn/go-sqlite3`. The UI adapts shadcn/ui design tokens and component styles to native HTML and plain CSS. It preserves the visual style without requiring React components. Node.js, npm, Tailwind compilation, and frontend build tools are not required. The existing JSON endpoints under `/api` remain available.
+The only Go dependencies are chi and `mattn/go-sqlite3`. The UI adapts shadcn/ui design tokens and component styles to native HTML and plain CSS. It preserves the visual style without requiring React components. Node.js, npm, Tailwind compilation, and frontend build tools are not required.
+
+`GET /api/alerts` returns cached GitHub results immediately. `POST /api/refresh` starts a background refresh and returns `202 Accepted`; repeated requests share the running job. `GET /api/status` returns `refreshing`, `loaded`, and a cache `version`. `POST /api/connections` returns `201 Created` after saving, with an empty `login` until background verification succeeds. Read `/api/connections` again after the job completes for the resolved login and default sources.
 
 ## Checks
 
@@ -87,7 +90,7 @@ make test
 make build
 ```
 
-Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, sorting, persistent risk acceptance and reopening, CSV export, cross-origin writes, and concurrent refreshes. Tests use mock GitHub responses and do not require a real PAT.
+Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, sorting, persistent risk acceptance and reopening, CSV export, cross-origin writes, and background verification and refreshes, including cancellation and connection changes. Tests use mock GitHub responses and do not require a real PAT.
 
 ## Releases
 

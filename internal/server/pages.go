@@ -24,6 +24,7 @@ const pageSize = 20
 type connectionView struct {
 	ID, Label, Login        string
 	Accounts, Organizations []string
+	Error                   string
 }
 
 type filters struct {
@@ -89,6 +90,7 @@ type pageData struct {
 	Total, MatchCount, Page, Pages, Start, End int
 	FetchedAt                                  time.Time
 	Form                                       formValues
+	Version                                    uint64
 }
 
 func templateFunctions() template.FuncMap {
@@ -220,8 +222,18 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 		Total: len(result.Alerts), Accepted: accepted,
 	}
 	for _, conn := range connections {
-		p.Connections = append(p.Connections, connectionView{conn.ID, conn.Label, conn.Login, conn.Accounts, conn.Organizations})
-		p.SourceLabels[conn.ID] = conn.Label
+		view := connectionView{ID: conn.ID, Label: conn.Label, Login: conn.Login, Accounts: conn.Accounts, Organizations: conn.Organizations}
+		if view.Label == "" {
+			view.Label = "GitHub connection"
+		}
+		for _, issue := range result.Errors {
+			if issue.ConnectionID == conn.ID && issue.Source == authenticationSource {
+				view.Error = issue.Message
+				break
+			}
+		}
+		p.Connections = append(p.Connections, view)
+		p.SourceLabels[conn.ID] = view.Label
 	}
 	owners, ecosystems := make(map[string]bool), make(map[string]bool)
 	severityCounts := make(map[string]int)
@@ -359,8 +371,10 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data pag
 }
 
 func (s *Server) currentPage(r *http.Request) pageData {
-	connections, result, loaded, refreshing, accepted := s.state.pageSnapshot()
-	return makePage(r, connections, result, loaded, refreshing, accepted)
+	connections, result, loaded, refreshing, accepted, version := s.state.pageSnapshot()
+	p := makePage(r, connections, result, loaded, refreshing, accepted)
+	p.Version = version
+	return p
 }
 
 func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request) {
@@ -395,10 +409,6 @@ func (s *Server) createConnectionPage(w http.ResponseWriter, r *http.Request) {
 		s.renderConnections(w, r, failure.status, failure.message, values)
 		return
 	}
-	if _, failure = s.refresh(r.Context()); failure != nil {
-		s.renderConnections(w, r, failure.status, "Connection added. "+failure.message, formValues{})
-		return
-	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -407,20 +417,11 @@ func (s *Server) removeConnectionPage(w http.ResponseWriter, r *http.Request) {
 		s.renderConnections(w, r, failure.status, failure.message, formValues{})
 		return
 	}
-	if _, failure := s.refresh(r.Context()); failure != nil {
-		s.renderConnections(w, r, failure.status, "Connection removed. "+failure.message, formValues{})
-		return
-	}
 	http.Redirect(w, r, "/connections", http.StatusSeeOther)
 }
 
 func (s *Server) refreshPage(w http.ResponseWriter, r *http.Request) {
-	if _, failure := s.refresh(r.Context()); failure != nil {
-		p := s.currentPage(r)
-		p.Error = failure.message
-		s.render(w, failure.status, "overview", p)
-		return
-	}
+	s.requestRefresh()
 	// Filters are query parameters on the form action, never a redirect target.
 	target := "/"
 	if r.URL.RawQuery != "" {

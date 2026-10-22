@@ -131,6 +131,9 @@ tbody tr:hover { background: #fdfefa; }
 .notice { padding: 16px 20px; border: 1px solid; border-radius: 8px; font-size: 14px; margin-bottom: 24px; }
 .notice-error { background: #fff4f0; color: #963a2f; border-color: #eccfc7; }
 .notice-warning { background: #fffbef; color: #7b621c; border-color: #e9ddb4; }
+.sync-status { background: var(--muted); border-color: var(--border); }
+.sync-status .text-link { margin-left: 8px; }
+[hidden] { display: none !important; }
 .notice summary { font-weight: 550; }
 .notice ul { padding-left: 20px; margin-bottom: 0; }
 .notice li { margin-top: 13px; }

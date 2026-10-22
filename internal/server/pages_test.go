@@ -83,6 +83,7 @@ func TestNativeConnectionFormsAndCachedRendering(t *testing.T) {
 	if res.Code != 303 || res.Header().Get("Location") != "/" {
 		t.Fatalf("native connection form did not redirect: status=%d body=%s", res.Code, res.Body.String())
 	}
+	waitForRefresh(t, handler)
 	res = request(handler, "GET", "/?q=native-package&severity=high&state=open", "", cookie)
 	if res.Code != 200 || !strings.Contains(res.Body.String(), "Vulnerability in native-package") {
 		t.Fatalf("alerts were not rendered server-side: %s", res.Body.String())
@@ -122,7 +123,12 @@ func TestFormErrorsPreserveOnlyNonSecretFields(t *testing.T) {
 		t.Fatalf("form validation did not escape values or leaked the PAT: status=%d", res.Code)
 	}
 	res = formRequest(handler, "/connections", url.Values{"token": {"invalid"}}, cookie)
-	if res.Code != 422 || !strings.Contains(res.Body.String(), "GitHub rejected this token") {
+	if res.Code != 303 {
+		t.Fatal("connection form waited for GitHub validation")
+	}
+	waitForRefresh(t, handler)
+	res = request(handler, "GET", "/connections", "", cookie)
+	if !strings.Contains(res.Body.String(), "GitHub rejected this token") {
 		t.Fatal("GitHub token error was not rendered")
 	}
 }
@@ -171,6 +177,7 @@ func TestHTMLAndCSVRejectUnsafeContent(t *testing.T) {
 	handler := newTestServer(t, client)
 	cookie := browserCookie()
 	formRequest(handler, "/connections", url.Values{"token": {"test-secret"}}, cookie)
+	waitForRefresh(t, handler)
 	res := request(handler, "GET", "/", "", cookie)
 	if res.Code != 200 || strings.Contains(res.Body.String(), `<script>alert(1)</script>`) || strings.Contains(res.Body.String(), `href="javascript:`) {
 		t.Fatal("unsafe alert content was rendered")
@@ -192,6 +199,7 @@ func TestRefreshFormPreservesFiltersAndPartialResults(t *testing.T) {
 	if res.Code != 303 || res.Header().Get("Location") != "/?state=all&q=partial" {
 		t.Fatal("refresh did not preserve the current view")
 	}
+	waitForRefresh(t, handler)
 	res = request(handler, "GET", "/?state=all&q=partial", "", cookie)
 	if !strings.Contains(res.Body.String(), "Alert totals may be incomplete") || !strings.Contains(res.Body.String(), "partial-package") {
 		t.Fatal("partial results or the completeness warning was lost")
@@ -200,28 +208,35 @@ func TestRefreshFormPreservesFiltersAndPartialResults(t *testing.T) {
 
 func TestConnectionChangesDiscardInFlightResults(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
-	client := &fakeGitHub{fetch: func(context.Context, []github.Connection) github.Result {
-		close(started)
-		<-release
-		return github.Result{Alerts: []github.Alert{pageAlert("stale-package", "octocat/project", "high", "open")}}
+	defer close(release)
+	var calls atomic.Int32
+	client := &fakeGitHub{fetch: func(ctx context.Context, connections []github.Connection) github.Result {
+		if calls.Add(1) == 1 {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+			return github.Result{Alerts: []github.Alert{pageAlert("stale-package", "octocat/project", "high", "open")}}
+		}
+		return github.Result{}
 	}}
 	handler := newTestServer(t, client)
 	cookie := browserCookie()
 	created := request(handler, "POST", "/api/connections", `{"token":"test-secret"}`, cookie)
 	var conn github.Connection
 	_ = json.Unmarshal(created.Body.Bytes(), &conn)
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- request(handler, "GET", "/api/alerts", "", cookie) }()
 	<-started
-	request(handler, "DELETE", "/api/connections/"+conn.ID, "", cookie)
-	close(release)
-	res := <-done
-	if res.Code != 409 {
-		t.Fatalf("results from a disconnected source were accepted: %d", res.Code)
+	if res := request(handler, "DELETE", "/api/connections/"+conn.ID, "", cookie); res.Code != 204 {
+		t.Fatalf("disconnect failed during refresh: %d", res.Code)
 	}
-	res = request(handler, "GET", "/", "", cookie)
+	waitForRefresh(t, handler)
+	res := request(handler, "GET", "/", "", cookie)
 	if strings.Contains(res.Body.String(), "stale-package") {
 		t.Fatal("stale alerts were cached after disconnect")
+	}
+	if calls.Load() != 2 {
+		t.Fatal("changed connections did not trigger a follow-up refresh")
 	}
 }
 

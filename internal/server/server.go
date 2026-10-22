@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/thelicato/ghal/internal/github"
@@ -32,9 +33,14 @@ type Server struct {
 	state     *state
 	store     *storage.Store
 	templates *template.Template
+	router    http.Handler
+	ctx       context.Context
+	cancel    context.CancelFunc
+	jobs      sync.WaitGroup
+	closed    bool // Protected by state.mu.
 }
 
-func New(client GitHub, store *storage.Store) (http.Handler, error) {
+func New(client GitHub, store *storage.Store) (*Server, error) {
 	connections, err := store.List(context.Background())
 	if err != nil {
 		return nil, err
@@ -49,6 +55,7 @@ func New(client GitHub, store *storage.Store) (http.Handler, error) {
 		store:     store,
 		templates: template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
 	}
+	s.ctx, s.cancel = context.WithCancel(context.Background())
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
@@ -65,6 +72,8 @@ func New(client GitHub, store *storage.Store) (http.Handler, error) {
 		r.Post("/connections", s.addConnection)
 		r.Delete("/connections/{id}", s.deleteConnection)
 		r.Get("/alerts", s.alerts)
+		r.Get("/status", s.syncStatus)
+		r.Post("/refresh", s.refreshAPI)
 		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "API endpoint not found.")
 		})
@@ -81,7 +90,22 @@ func New(client GitHub, store *storage.Store) (http.Handler, error) {
 	r.Get("/alerts.csv", s.exportCSV)
 	r.Get("/demo", s.demoPage)
 	r.Get("/demo/alerts.csv", s.exportDemoCSV)
-	return r, nil
+	s.router = r
+	if len(connections) > 0 {
+		s.requestRefresh()
+	}
+	return s, nil
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.router.ServeHTTP(w, r) }
+
+// Close cancels background GitHub work and waits before SQLite can be closed.
+func (s *Server) Close() {
+	s.state.mu.Lock()
+	s.closed = true
+	s.cancel()
+	s.state.mu.Unlock()
+	s.jobs.Wait()
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -190,24 +214,8 @@ func (s *Server) createConnection(ctx context.Context, input connectionInput) (g
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	login, err := s.github.Login(ctx, input.Token)
-	if err != nil {
-		status := http.StatusBadGateway
-		var apiError *github.APIError
-		if errors.As(err, &apiError) && (apiError.Status == 401 || apiError.Status == 403) {
-			status = http.StatusUnprocessableEntity
-		}
-		return fail(status, err.Error())
-	}
-	if input.Label == "" {
-		input.Label = login
-	}
-	if len(accounts) == 0 && len(orgs) == 0 {
-		accounts = append(accounts, login)
-	}
-	conn := github.Connection{ID: rand.Text(), Label: input.Label, Login: login, Accounts: accounts, Organizations: orgs, Token: input.Token}
+	// Save first. Token verification and source discovery belong to the background job.
+	conn := github.Connection{ID: rand.Text(), Label: input.Label, Accounts: accounts, Organizations: orgs, Token: input.Token}
 	state := s.state
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -219,6 +227,7 @@ func (s *Server) createConnection(ctx context.Context, input connectionInput) (g
 	}
 	state.connections = append(state.connections, conn)
 	state.invalidateLocked()
+	s.startRefreshLocked()
 	return conn, nil
 }
 
@@ -241,6 +250,7 @@ func (s *Server) removeConnection(ctx context.Context, id string) *requestError 
 			}
 			state.connections = slices.Delete(state.connections, i, i+1)
 			state.invalidateLocked()
+			s.startRefreshLocked()
 			return nil
 		}
 	}
@@ -248,40 +258,10 @@ func (s *Server) removeConnection(ctx context.Context, id string) *requestError 
 }
 
 func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
-	result, failure := s.refresh(r.Context())
-	if failure != nil {
-		writeError(w, failure.status, failure.message)
-		return
-	}
+	s.state.mu.Lock()
+	result := s.state.result
+	s.state.mu.Unlock()
 	writeJSON(w, http.StatusOK, result)
-}
-
-func (s *Server) refresh(ctx context.Context) (github.Result, *requestError) {
-	state := s.state
-	state.mu.Lock()
-	if state.refreshing {
-		state.mu.Unlock()
-		return github.Result{}, &requestError{http.StatusConflict, "A refresh is already running. Wait for it to finish."}
-	}
-	state.refreshing = true
-	connections := append([]github.Connection{}, state.connections...)
-	revision := state.revision
-	state.mu.Unlock()
-	defer func() { state.mu.Lock(); state.refreshing = false; state.mu.Unlock() }()
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	result := s.github.Fetch(ctx, connections)
-	if result.FetchedAt.IsZero() {
-		result.FetchedAt = time.Now().UTC()
-	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	if state.revision != revision {
-		return github.Result{}, &requestError{http.StatusConflict, "Connections changed during the refresh. Refresh alerts again."}
-	}
-	state.result = result
-	state.loaded = true
-	return result, nil
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
