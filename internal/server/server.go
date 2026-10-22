@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"html/template"
 	"io"
 	"io/fs"
 	"net/http"
@@ -26,12 +27,17 @@ type GitHub interface {
 }
 
 type Server struct {
-	github   GitHub
-	sessions sessions
+	github    GitHub
+	sessions  sessions
+	templates *template.Template
 }
 
 func New(client GitHub, secureCookies bool) http.Handler {
-	s := &Server{github: client, sessions: sessions{entries: make(map[string]sessionEntry), secure: secureCookies}}
+	s := &Server{
+		github:    client,
+		sessions:  sessions{entries: make(map[string]sessionEntry), secure: secureCookies},
+		templates: template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
+	}
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
@@ -54,18 +60,16 @@ func New(client GitHub, secureCookies bool) http.Handler {
 			writeError(w, http.StatusNotFound, "API endpoint not found.")
 		})
 	})
-	assets, _ := fs.Sub(web.Assets, "dist")
-	files := http.FileServerFS(assets)
-	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			if _, err := fs.Stat(assets, "index.html"); err != nil {
-				http.Error(w, "Frontend not built. Run pnpm install and pnpm build, then restart dbaui.", http.StatusServiceUnavailable)
-				return
-			}
-			w.Header().Set("Cache-Control", "no-cache")
-		}
-		files.ServeHTTP(w, r)
-	})
+	assets, _ := fs.Sub(web.Assets, "static")
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(assets)))
+	r.Get("/", s.overviewPage)
+	r.Get("/connections", s.connectionsPage)
+	r.Post("/connections", s.createConnectionPage)
+	r.Post("/connections/{id}/delete", s.removeConnectionPage)
+	r.Post("/refresh", s.refreshPage)
+	r.Get("/alerts.csv", s.exportCSV)
+	r.Get("/demo", s.demoPage)
+	r.Get("/demo/alerts.csv", s.exportDemoCSV)
 	return r
 }
 
@@ -116,6 +120,18 @@ func normalizeOwners(values []string) ([]string, error) {
 	return result, nil
 }
 
+type connectionInput struct {
+	Label         string   `json:"label"`
+	Token         string   `json:"token"`
+	Accounts      []string `json:"accounts"`
+	Organizations []string `json:"organizations"`
+}
+
+type requestError struct {
+	status  int
+	message string
+}
+
 func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 	session := s.sessions.get(w, r)
 	if session == nil {
@@ -127,12 +143,7 @@ func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	defer r.Body.Close()
-	var input struct {
-		Label         string   `json:"label"`
-		Token         string   `json:"token"`
-		Accounts      []string `json:"accounts"`
-		Organizations []string `json:"organizations"`
-	}
+	var input connectionInput
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
@@ -143,31 +154,39 @@ func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Send a single JSON object.")
 		return
 	}
+	conn, failure := s.createConnection(r.Context(), session, input)
+	if failure != nil {
+		writeError(w, failure.status, failure.message)
+		return
+	}
+	writeJSON(w, http.StatusCreated, conn)
+}
+
+func (s *Server) createConnection(ctx context.Context, session *session, input connectionInput) (github.Connection, *requestError) {
+	fail := func(status int, message string) (github.Connection, *requestError) {
+		return github.Connection{}, &requestError{status, message}
+	}
 	input.Label = strings.TrimSpace(input.Label)
 	input.Token = strings.TrimSpace(input.Token)
 	if len(input.Label) > 80 || len(input.Token) < 1 || len(input.Token) > 512 || strings.ContainsAny(input.Token, " \r\n\t") || len(input.Accounts)+len(input.Organizations) > 20 {
-		writeError(w, http.StatusBadRequest, "Provide a token, a label of at most 80 characters, and at most 20 accounts and organizations.")
-		return
+		return fail(http.StatusBadRequest, "Provide a token, a label of at most 80 characters, and at most 20 accounts and organizations.")
 	}
 	accounts, err := normalizeOwners(input.Accounts)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return fail(http.StatusBadRequest, err.Error())
 	}
 	orgs, err := normalizeOwners(input.Organizations)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return fail(http.StatusBadRequest, err.Error())
 	}
 	for _, account := range accounts {
 		for _, org := range orgs {
 			if strings.EqualFold(account, org) {
-				writeError(w, http.StatusBadRequest, "A source must be either a personal account or an organization.")
-				return
+				return fail(http.StatusBadRequest, "A source must be either a personal account or an organization.")
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	login, err := s.github.Login(ctx, input.Token)
 	if err != nil {
@@ -176,8 +195,7 @@ func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &apiError) && (apiError.Status == 401 || apiError.Status == 403) {
 			status = http.StatusUnprocessableEntity
 		}
-		writeError(w, status, err.Error())
-		return
+		return fail(status, err.Error())
 	}
 	if input.Label == "" {
 		input.Label = login
@@ -189,11 +207,11 @@ func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	if len(session.connections) >= 10 {
-		writeError(w, http.StatusConflict, "A session supports up to 10 connections.")
-		return
+		return fail(http.StatusConflict, "A session supports up to 10 connections.")
 	}
 	session.connections = append(session.connections, conn)
-	writeJSON(w, http.StatusCreated, conn)
+	session.invalidateLocked()
+	return conn, nil
 }
 
 func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
@@ -201,16 +219,24 @@ func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	if session == nil {
 		return
 	}
+	if !removeConnection(session, chi.URLParam(r, "id")) {
+		writeError(w, http.StatusNotFound, "Connection not found.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func removeConnection(session *session, id string) bool {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	for i, conn := range session.connections {
-		if conn.ID == chi.URLParam(r, "id") {
+		if conn.ID == id {
 			session.connections = slices.Delete(session.connections, i, i+1)
-			w.WriteHeader(http.StatusNoContent)
-			return
+			session.invalidateLocked()
+			return true
 		}
 	}
-	writeError(w, http.StatusNotFound, "Connection not found.")
+	return false
 }
 
 func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
@@ -218,17 +244,37 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
 	if session == nil {
 		return
 	}
+	result, failure := s.refreshSession(r.Context(), session)
+	if failure != nil {
+		writeError(w, failure.status, failure.message)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) refreshSession(ctx context.Context, session *session) (github.Result, *requestError) {
 	session.mu.Lock()
 	if session.refreshing {
 		session.mu.Unlock()
-		writeError(w, http.StatusConflict, "A refresh is already running. Wait for it to finish.")
-		return
+		return github.Result{}, &requestError{http.StatusConflict, "A refresh is already running. Wait for it to finish."}
 	}
 	session.refreshing = true
 	connections := append([]github.Connection{}, session.connections...)
+	revision := session.revision
 	session.mu.Unlock()
 	defer func() { session.mu.Lock(); session.refreshing = false; session.mu.Unlock() }()
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	writeJSON(w, http.StatusOK, s.github.Fetch(ctx, connections))
+	result := s.github.Fetch(ctx, connections)
+	if result.FetchedAt.IsZero() {
+		result.FetchedAt = time.Now().UTC()
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.revision != revision {
+		return github.Result{}, &requestError{http.StatusConflict, "Connections changed during the refresh. Refresh alerts again."}
+	}
+	session.result = result
+	session.loaded = true
+	return result, nil
 }

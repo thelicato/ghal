@@ -15,6 +15,9 @@ type session struct {
 	mu          sync.Mutex
 	connections []github.Connection
 	refreshing  bool
+	result      github.Result
+	loaded      bool
+	revision    uint64
 }
 
 type sessionEntry struct {
@@ -61,4 +64,18 @@ func (s *session) snapshot() []github.Connection {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]github.Connection{}, s.connections...)
+}
+
+func (s *session) pageSnapshot() ([]github.Connection, github.Result, bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]github.Connection{}, s.connections...), s.result, s.loaded, s.refreshing
+}
+
+// Invalidate cached alerts when credentials change, including during a refresh.
+// The caller holds s.mu.
+func (s *session) invalidateLocked() {
+	s.revision++
+	s.result = github.Result{}
+	s.loaded = false
 }

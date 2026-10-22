@@ -5,7 +5,8 @@ Build `dbaui` (DependaBot Alerts UI), a simple Go web application that aggregate
 ## Requirements
 
 - Use Go and the chi router. Keep dependencies to a minimum and prefer the standard library where practical.
-- Provide a polished, responsive interface using shadcn/ui. Keep the frontend setup as small as practical.
+- Render the UI with Go HTML templates. Preserve shadcn/ui styling through locally owned HTML and CSS components. Do not add React, a Node.js frontend, or a frontend build pipeline.
+- Use readable text sizes and a functional interface. Avoid promotional copy, workspace panels, privacy badges, and decorative reassurance components.
 - Allow users to configure multiple GitHub personal access tokens (PATs) and their associated GitHub accounts and organizations.
 - Display all Dependabot alerts across the configured accounts and organizations in one UI. Handle GitHub API pagination so alerts are not silently omitted.
 - Treat PATs as secrets. Do not expose them in logs, error messages, or alert responses.

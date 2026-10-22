@@ -1,0 +1,46 @@
+{{define "head"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fafaf9">
+  <title>{{.Title}} - dbaui</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a href="#main" class="skip-link">Skip to content</a>
+  <header class="app-header">
+    <div class="header-inner">
+      <a href="/" class="brand" aria-label="dbaui home">{{template "icon-shield"}}<span>dbaui</span></a>
+      <nav aria-label="Main navigation">
+        <a href="/" {{if eq .View "alerts"}}aria-current="page"{{end}}>Alerts</a>
+        <a href="/connections" {{if eq .View "connections"}}aria-current="page"{{end}}>Connections</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="container">
+{{end}}
+
+{{define "foot"}}
+  </main>
+</body>
+</html>
+{{end}}
+
+{{define "page-error"}}
+{{if .Error}}<div class="notice notice-error" role="alert">{{.Error}}</div>{{end}}
+{{end}}
+
+{{define "source-errors"}}
+{{if .Errors}}
+<details class="notice notice-warning">
+  <summary>{{len .Errors}} source {{if eq (len .Errors) 1}}issue{{else}}issues{{end}}. Alert totals may be incomplete.</summary>
+  <ul>
+    {{range .Errors}}<li><strong>{{index $.SourceLabels .ConnectionID}} / {{.Source}}</strong><p>{{.Message}}</p></li>{{end}}
+  </ul>
+</details>
+{{end}}
+{{end}}

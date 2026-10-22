@@ -2,7 +2,7 @@ package web
 
 import "embed"
 
-// Assets contains the frontend compiled by pnpm build.
+// Assets contains the HTML templates and static assets embedded in the Go binary.
 //
-//go:embed all:dist
+//go:embed templates/*.html static/*
 var Assets embed.FS

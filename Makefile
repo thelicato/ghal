@@ -1,7 +1,6 @@
 .PHONY: build run test
 
 build:
-	pnpm build
 	go build -o bin/dbaui ./cmd/dbaui
 
 run:
@@ -9,4 +8,3 @@ run:
 
 test:
 	go test -race ./...
-	pnpm check

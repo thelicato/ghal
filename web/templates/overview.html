@@ -1,0 +1,92 @@
+{{define "overview"}}
+{{template "head" .}}
+  <section class="page-heading">
+    <div>
+      <h1>Dependabot alerts {{if .Demo}}<span class="badge">Sample data</span>{{end}}</h1>
+      <p class="page-meta">{{len .Connections}} {{if eq (len .Connections) 1}}connection{{else}}connections{{end}}{{if and .Loaded (not .Demo)}}<span aria-hidden="true"> / </span>Updated <time datetime="{{.FetchedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.FetchedAt.UTC.Format "02 Jan 2006 15:04 UTC"}}</time>{{end}}</p>
+    </div>
+    <div class="heading-actions">
+      {{if .Demo}}<a class="button button-outline" href="/">Exit demo</a>{{else}}
+      <form method="post" action="{{.RefreshURL}}" data-pending="Refreshing...">
+        <button class="button button-outline" type="submit" {{if or .Refreshing (not .Connections)}}disabled{{end}}>{{template "icon-refresh"}}<span>{{if .Refreshing}}Refreshing...{{else}}Refresh alerts{{end}}</span></button>
+      </form>
+      {{end}}
+      <a class="button" href="/connections#add-connection">{{template "icon-plus"}}Add connection</a>
+    </div>
+  </section>
+  {{template "page-error" .}}
+  {{template "source-errors" .}}
+  <section class="stats-grid" aria-label="Open alerts by severity">
+    {{range .Summaries}}
+    <a class="card stat-card severity-{{.Severity}}{{if .Selected}} selected{{end}}" href="{{.URL}}" {{if .Selected}}aria-current="true"{{end}}>
+      <span class="stat-label"><span class="severity-dot"></span>{{label .Severity}}</span>
+      <strong>{{.Count}}</strong>
+      <span class="stat-caption">Open alerts</span>
+    </a>
+    {{end}}
+  </section>
+  <section class="card alerts-card" aria-label="Dependabot alerts">
+    <div class="alerts-toolbar">
+      <nav class="state-tabs" aria-label="Alert state">
+        <a href="{{.URL "state" "open"}}" {{if eq .Filters.State "open"}}aria-current="page"{{end}}>Open <span class="tab-count">{{index .Counts "open"}}</span></a>
+        <a href="{{.URL "state" "fixed"}}" {{if eq .Filters.State "fixed"}}aria-current="page"{{end}}>Fixed <span class="tab-count">{{index .Counts "fixed"}}</span></a>
+        <a href="{{.URL "state" "dismissed"}}" {{if eq .Filters.State "dismissed"}}aria-current="page"{{end}}>Dismissed <span class="tab-count">{{index .Counts "dismissed"}}</span></a>
+        <a href="{{.URL "state" "all"}}" {{if eq .Filters.State "all"}}aria-current="page"{{end}}>All <span class="tab-count">{{.Total}}</span></a>
+      </nav>
+      {{if .MatchCount}}<a class="button button-outline button-small export-link" href="{{.ExportURL}}">{{template "icon-download"}}Export CSV</a>{{else}}<span class="button button-outline button-small export-link" aria-disabled="true">{{template "icon-download"}}Export CSV</span>{{end}}
+    </div>
+    <form class="filters" method="get" action="{{.BasePath}}" role="search">
+      <input type="hidden" name="state" value="{{.Filters.State}}">
+      <div class="field search-field"><label for="search">Search alerts</label><input class="input" id="search" name="q" type="search" value="{{.Filters.Query}}" placeholder="Package, repository, or CVE"></div>
+      <div class="field"><label for="severity">Severity</label><select class="input" id="severity" name="severity"><option value="all">All severities</option>{{range .Summaries}}<option value="{{.Severity}}" {{if eq $.Filters.Severity .Severity}}selected{{end}}>{{label .Severity}}</option>{{end}}</select></div>
+      <div class="field"><label for="owner">Source</label><select class="input" id="owner" name="owner"><option value="">All sources</option>{{range .Owners}}<option value="{{.}}" {{if eq $.Filters.Owner .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
+      <div class="field"><label for="ecosystem">Ecosystem</label><select class="input" id="ecosystem" name="ecosystem"><option value="">All ecosystems</option>{{range .Ecosystems}}<option value="{{.}}" {{if eq $.Filters.Ecosystem .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
+      <button class="button button-outline" type="submit">Apply</button>
+    </form>
+    {{if .Rows}}
+    <div class="table-scroll" role="region" aria-label="Alert results" tabindex="0">
+      <table>
+        <thead><tr><th scope="col">Dependency / vulnerability</th><th scope="col">Repository</th><th scope="col">Severity</th><th scope="col">State</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">GitHub link</span></th></tr></thead>
+        <tbody>
+          {{range .Rows}}
+          <tr>
+            <td>
+              <details class="alert-details">
+                <summary><span class="dependency-name">{{.Dependency.Package.Name}} <span class="badge ecosystem-badge">{{.Dependency.Package.Ecosystem}}</span></span><span class="vulnerability-summary">{{.SecurityAdvisory.Summary}}</span></summary>
+                <dl class="alert-detail">
+                  <div><dt>Advisory</dt><dd>{{if .SecurityAdvisory.CVEID}}{{.SecurityAdvisory.CVEID}}{{else}}{{.SecurityAdvisory.GHSAID}}{{end}}</dd></div>
+                  <div><dt>Vulnerable versions</dt><dd>{{if .SecurityVulnerability.VulnerableVersionRange}}{{.SecurityVulnerability.VulnerableVersionRange}}{{else}}Not specified{{end}}</dd></div>
+                  <div><dt>First patched version</dt><dd>{{if .SecurityVulnerability.FirstPatchedVersion}}{{.SecurityVulnerability.FirstPatchedVersion.Identifier}}{{else}}No patch available{{end}}</dd></div>
+                  <div><dt>Dependency scope</dt><dd>{{if .Dependency.Scope}}{{.Dependency.Scope}}{{else}}Not specified{{end}}</dd></div>
+                </dl>
+              </details>
+            </td>
+            <td><span class="repository-name">{{.Repository.FullName}}</span><span class="manifest-path">{{.Dependency.ManifestPath}}</span></td>
+            <td><span class="badge severity-badge severity-{{.SecurityAdvisory.Severity}}"><span class="severity-dot"></span>{{label .SecurityAdvisory.Severity}}</span></td>
+            <td><span class="alert-state state-{{.State}}"><span class="state-dot"></span>{{label .State}}</span></td>
+            <td class="updated-cell"><time datetime="{{.UpdatedAt}}" title="{{.UpdatedTitle}}">{{.Updated}}</time></td>
+            <td>{{if .Link}}<a href="{{.Link}}" class="github-link" target="_blank" rel="noreferrer" aria-label="Open {{.Dependency.Package.Name}} alert #{{.Number}} on GitHub">{{template "icon-arrow"}}</a>{{end}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty-state">
+      {{if not .Connections}}<h2>No connections configured</h2><p>Add a GitHub PAT and the accounts or organizations to fetch alerts from.</p><div class="empty-actions"><a class="button" href="/connections#add-connection">Add connection</a><a class="text-link" href="/demo">View sample alerts</a></div>
+      {{else if not .Loaded}}<h2>Alerts haven't been fetched yet</h2><p>Use Refresh alerts to load the configured sources.</p>
+      {{else if .Errors}}<h2>No alerts to display</h2><p>Review the source issues above to see what could not be loaded.</p>
+      {{else}}<h2>No matching alerts</h2><p>Try a different state or <a class="text-link" href="{{.BasePath}}?state={{.Filters.State}}">clear the filters</a>.</p>{{end}}
+    </div>
+    {{end}}
+    <div class="table-footer">
+      <span>{{if .MatchCount}}{{.Start}}-{{.End}} of {{.MatchCount}} alerts{{else}}0 alerts{{end}}</span>
+      <nav class="pagination" aria-label="Pagination">
+        {{if gt .Page 1}}<a class="button button-outline button-small" href="{{.PageURL (add .Page -1)}}">Previous</a>{{else}}<span class="button button-outline button-small" aria-disabled="true">Previous</span>{{end}}
+        <span>{{.Page}} / {{.Pages}}</span>
+        {{if lt .Page .Pages}}<a class="button button-outline button-small" href="{{.PageURL (add .Page 1)}}">Next</a>{{else}}<span class="button button-outline button-small" aria-disabled="true">Next</span>{{end}}
+      </nav>
+    </div>
+  </section>
+{{template "foot" .}}
+{{end}}

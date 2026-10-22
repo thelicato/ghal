@@ -1,0 +1,35 @@
+{{define "connections"}}
+{{template "head" .}}
+  <section class="page-heading">
+    <div><h1>Connections</h1><p class="page-meta">{{len .Connections}} configured {{if eq (len .Connections) 1}}connection{{else}}connections{{end}}</p></div>
+    <a class="button button-outline" href="/">View alerts</a>
+  </section>
+  {{template "page-error" .}}
+  <div class="connections-layout">
+    <section class="connection-list" aria-label="Configured connections">
+      {{range .Connections}}
+      <article class="card connection-card">
+        <div class="connection-heading"><div><h2>{{.Label}}</h2><p class="muted">Authenticated as @{{.Login}}</p></div></div>
+        <dl class="connection-sources">
+          {{if .Accounts}}<div><dt>Accounts</dt><dd>{{range .Accounts}}<span class="badge">{{.}}</span>{{end}}</dd></div>{{end}}
+          {{if .Organizations}}<div><dt>Organizations</dt><dd>{{range .Organizations}}<span class="badge">{{.}}</span>{{end}}</dd></div>{{end}}
+        </dl>
+        <form method="post" action="/connections/{{.ID}}/delete" data-pending="Disconnecting..."><button type="submit" class="button button-outline button-danger" {{if $.Refreshing}}disabled{{end}}>Disconnect</button></form>
+      </article>
+      {{else}}<div class="card connection-empty"><h2>No connections configured</h2><p class="muted">Add a PAT using the form. You can create separate connections for different accounts and organizations.</p></div>{{end}}
+    </section>
+    <section class="card connection-form" id="add-connection" aria-labelledby="add-title">
+      <h2 id="add-title">Add connection</h2>
+      <form method="post" action="/connections" data-pending="Connecting and fetching alerts...">
+        <div class="field"><label for="connection-label">Connection name <span class="optional">(optional)</span></label><input class="input" id="connection-label" name="label" placeholder="Work or personal" maxlength="80" value="{{.Form.Label}}"></div>
+        <div class="field"><label for="connection-token">Personal access token</label><input class="input" id="connection-token" name="token" type="password" placeholder="github_pat_... or ghp_..." autocomplete="new-password" spellcheck="false" required maxlength="512" aria-describedby="token-help"><p class="field-help" id="token-help">Requires read access to Dependabot alerts. <a class="text-link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">Create a PAT</a></p></div>
+        <div class="field"><label for="connection-accounts">Personal accounts <span class="optional">(optional)</span></label><input class="input" id="connection-accounts" name="accounts" placeholder="octocat, another-account" autocomplete="off" spellcheck="false" value="{{.Form.Accounts}}"></div>
+        <div class="field"><label for="connection-orgs">Organizations <span class="optional">(optional)</span></label><input class="input" id="connection-orgs" name="organizations" placeholder="your-org, another-org" autocomplete="off" spellcheck="false" value="{{.Form.Organizations}}" aria-describedby="sources-help"><p class="field-help" id="sources-help">Separate names with commas. Leave both fields blank to use the token's own account.</p></div>
+        <button type="submit" class="button" {{if $.Refreshing}}disabled{{end}}>{{template "icon-plus"}}<span>Add connection</span></button>
+        <p class="submit-status" role="status" aria-live="polite"></p>
+      </form>
+      <details class="connection-help"><summary>Permissions and storage</summary><p>Organization-wide alerts require an organization owner or security manager. Authorize the PAT for SSO when required.</p><p>Connections are stored in server memory for up to 12 hours and cleared on restart.</p><a class="text-link" href="https://docs.github.com/en/rest/dependabot/alerts" target="_blank" rel="noreferrer">GitHub API permissions</a></details>
+    </section>
+  </div>
+{{template "foot" .}}
+{{end}}

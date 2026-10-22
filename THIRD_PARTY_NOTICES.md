@@ -1,6 +1,6 @@
 # Third-party notices
 
-The components in `web/src/components/ui/` are adapted from [shadcn/ui](https://github.com/shadcn-ui/ui), licensed under the MIT License. Dependencies retain their respective licenses.
+The design tokens and HTML component styles in `web/static/app.css` are adapted from [shadcn/ui](https://github.com/shadcn-ui/ui), licensed under the MIT License. Dependencies retain their respective licenses.
 
 ## shadcn/ui
 
