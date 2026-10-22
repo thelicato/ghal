@@ -243,7 +243,7 @@ func TestConnectionChangesDiscardInFlightResults(t *testing.T) {
 func TestNativeFormsRejectCrossOriginWrites(t *testing.T) {
 	client := &fakeGitHub{}
 	handler := newTestServer(t, client)
-	for _, path := range []string{"/connections", "/refresh", "/connections/example/delete", "/alerts/accept", "/alerts/reopen"} {
+	for _, path := range []string{"/connections", "/refresh", "/connections/example/delete", "/alerts/accept", "/alerts/accept-selected", "/alerts/reopen"} {
 		req := httptest.NewRequest("POST", "http://localhost"+path, strings.NewReader("token=test-secret"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", "https://evil.example")

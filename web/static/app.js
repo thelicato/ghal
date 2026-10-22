@@ -32,18 +32,47 @@ window.addEventListener("pageshow", () => {
   });
 });
 
+const bulkAcceptForm = document.querySelector("#bulk-accept-form");
+if (bulkAcceptForm) {
+  const rows = Array.from(document.querySelectorAll('input[name="alerts"][form="bulk-accept-form"]'));
+  const selectAll = document.querySelector("[data-select-all]");
+  const button = bulkAcceptForm.querySelector("[data-accept-selected]");
+  const count = bulkAcceptForm.querySelector("[data-selection-count]");
+  document.querySelector("[data-select-all-control]").hidden = false;
+
+  function updateSelection() {
+    const selected = rows.filter((row) => row.checked).length;
+    button.disabled = selected === 0;
+    count.textContent = `${selected} of ${rows.length} open alerts selected on this page`;
+    selectAll.checked = selected === rows.length;
+    selectAll.indeterminate = selected > 0 && selected < rows.length;
+  }
+
+  selectAll.addEventListener("change", () => {
+    rows.forEach((row) => { row.checked = selectAll.checked; });
+    updateSelection();
+  });
+  rows.forEach((row) => row.addEventListener("change", updateSelection));
+  window.addEventListener("pageshow", updateSelection);
+  updateSelection();
+}
+
 const syncStatus = document.querySelector("[data-sync-status]");
 if (syncStatus) {
   const initialVersion = syncStatus.dataset.version;
   const message = syncStatus.querySelector("[data-sync-message]");
   const reload = syncStatus.querySelector("[data-sync-reload]");
-  let edited = false;
+  const hasSelectedRows = () => Boolean(document.querySelector('input[name="alerts"][form="bulk-accept-form"]:checked'));
+  let edited = hasSelectedRows();
   let submitting = false;
   let wasRefreshing = syncStatus.dataset.refreshing === "true";
   document.addEventListener("input", () => { edited = true; });
   document.addEventListener("change", () => { edited = true; });
   document.addEventListener("submit", () => { submitting = true; });
-  window.addEventListener("pageshow", () => { submitting = false; });
+  window.addEventListener("pageshow", () => {
+    submitting = false;
+    edited = edited || hasSelectedRows();
+  });
 
   async function checkRefresh() {
     let delay = wasRefreshing ? 2000 : 10000;

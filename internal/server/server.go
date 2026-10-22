@@ -86,6 +86,7 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	r.Post("/connections/{id}/delete", s.removeConnectionPage)
 	r.Post("/refresh", s.refreshPage)
 	r.Post("/alerts/accept", s.acceptAlertPage)
+	r.Post("/alerts/accept-selected", s.acceptSelectedAlertsPage)
 	r.Post("/alerts/reopen", s.reopenAlertPage)
 	r.Get("/alerts.csv", s.exportCSV)
 	r.Get("/demo", s.demoPage)

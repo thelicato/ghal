@@ -37,9 +37,16 @@ type alertView struct {
 	github.Alert
 	Link, Updated, UpdatedTitle string
 	AcceptedAt                  time.Time
+	Selected                    bool
 }
 
 func (a alertView) Accepted() bool { return !a.AcceptedAt.IsZero() }
+
+func (a alertView) CanAccept() bool { return a.State == "open" && !a.Accepted() }
+
+func (a alertView) SelectionValue() string {
+	return a.Repository.FullName + "#" + strconv.Itoa(a.Number)
+}
 
 type summaryView struct {
 	Severity string
@@ -91,6 +98,19 @@ type pageData struct {
 	FetchedAt                                  time.Time
 	Form                                       formValues
 	Version                                    uint64
+}
+
+func (p pageData) SelectableCount() int {
+	if p.Demo {
+		return 0
+	}
+	count := 0
+	for _, row := range p.Rows {
+		if row.CanAccept() {
+			count++
+		}
+	}
+	return count
 }
 
 func templateFunctions() template.FuncMap {

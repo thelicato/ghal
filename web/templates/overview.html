@@ -47,13 +47,21 @@
       <button class="button button-outline" type="submit">Apply</button>
     </form>
     {{if .Rows}}
+    {{$selectable := .SelectableCount}}
+    {{if $selectable}}
+    <form id="bulk-accept-form" class="bulk-actions" method="post" action="{{.AlertActionURL "accept-selected"}}" data-pending="Accepting selected risks...">
+      <button class="button button-outline button-small" type="submit" data-accept-selected>Accept selected risks</button>
+      <span class="muted" data-selection-count role="status" aria-live="polite">Select open alerts on this page.</span>
+    </form>
+    {{end}}
     <div class="table-scroll" role="region" aria-label="Alert results" tabindex="0">
       <table>
-        <thead><tr>{{range .SortHeaders}}<th scope="col" aria-sort="{{.Order}}"><a class="sort-link" href="{{.URL}}" aria-label="Sort by {{.Label}}">{{.Label}} <span class="sort-indicator" aria-hidden="true">{{.Indicator}}</span></a></th>{{end}}<th scope="col">Actions</th></tr></thead>
+        <thead><tr>{{if $selectable}}<th scope="col" class="selection-cell"><span class="sr-only">Select alerts</span><label class="selection-control" data-select-all-control hidden><input class="checkbox" type="checkbox" data-select-all aria-label="Select all open alerts on this page"></label></th>{{end}}{{range .SortHeaders}}<th scope="col" aria-sort="{{.Order}}"><a class="sort-link" href="{{.URL}}" aria-label="Sort by {{.Label}}">{{.Label}} <span class="sort-indicator" aria-hidden="true">{{.Indicator}}</span></a></th>{{end}}<th scope="col">Actions</th></tr></thead>
         <tbody>
           {{range .Rows}}
           <tr>
-            <td>
+            {{if $selectable}}<td class="selection-cell">{{if .CanAccept}}<label class="selection-control"><input class="checkbox" type="checkbox" name="alerts" value="{{.SelectionValue}}" form="bulk-accept-form" aria-label="Select {{.Dependency.Package.Name}} alert #{{.Number}} in {{.Repository.FullName}}" {{if .Selected}}checked{{end}}></label>{{else}}<span class="sr-only">Selection unavailable</span>{{end}}</td>{{end}}
+            <td class="dependency-cell">
               <details class="alert-details">
                 <summary><span class="dependency-name">{{.Dependency.Package.Name}} <span class="badge ecosystem-badge">{{.Dependency.Package.Ecosystem}}</span></span><span class="vulnerability-summary">{{.SecurityAdvisory.Summary}}</span></summary>
                 <dl class="alert-detail">

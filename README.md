@@ -35,7 +35,7 @@ docker run -d --name ghal -p 127.0.0.1:8080:8080 -v ghal-data:/data ghal
 - Deduplicate alerts shared by multiple connections and retain the newest version.
 - Search packages, repositories, advisories, and CVEs. Filter by severity, state, source, and ecosystem.
 - Click a column heading to sort in either direction. Sorting applies across all pages and to CSV exports.
-- Accept individual alert risks locally and reopen them from the Accepted view. Decisions are shared across the deployment and survive restarts.
+- Accept individual or selected alert risks locally and reopen them from the Accepted view. Decisions are shared across the deployment and survive restarts.
 - Inspect vulnerable versions and available patches, open alerts on GitHub, and export the filtered results to CSV.
 - Show per-source failures and preserve successfully fetched pages when another page or source fails.
 - Save connections and refresh alerts in the background without blocking page navigation.
@@ -44,6 +44,8 @@ docker run -d --name ghal -p 127.0.0.1:8080:8080 -v ghal-data:/data ghal
 Adding a connection saves it immediately, then verifies its PAT and fetches alerts in the background. Verification failures appear in the alert dashboard and on Connections; use **Refresh alerts** to retry, or disconnect and add a replacement token. Removing a connection also starts a background refresh. Search, filters, pagination, and CSV export keep using cached alerts during a refresh. Disconnected sources are removed from the cache immediately, and connection changes cancel obsolete work and fetch the latest configuration. Alerts are cached in memory and fetched automatically on startup when saved connections exist. Background jobs continue if you navigate away and are cancelled when the application shuts down.
 
 **Accept risk** records a decision in ghal without dismissing the alert on GitHub. Accepted alerts leave the Open view and severity counts but remain in Accepted and All, with their original GitHub state visible. Fixed and Dismissed still show their respective GitHub states, including previously accepted alerts. Reopen removes local acceptance. Decisions follow the repository and alert number across PATs, refreshes, and reconnections; other alerts for the same vulnerability remain unaffected. CSV exports include acceptance status and time. The JSON alerts endpoint continues to return GitHub data without local acceptance metadata. Sample alerts cannot be accepted.
+
+Use the row checkboxes and **Accept selected risks** to accept several open alerts at once. The header checkbox selects all eligible rows on the current page. Selection is limited to that page and resets when navigating, sorting, or filtering. Each batch saves all selected decisions together; if an alert is missing, no longer open, or cannot be saved, none are changed. Individual selection and submission work without JavaScript.
 
 ## GitHub access
 

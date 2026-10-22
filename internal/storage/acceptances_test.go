@@ -63,3 +63,59 @@ func TestAcceptedAlertsUpgradePersistAndReopen(t *testing.T) {
 		t.Fatal("reopen did not persist or changed a different alert", err)
 	}
 }
+
+func TestAcceptAlertsPersistsWholeSelectionAndRetainsDecisionTimes(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "ghal.db")
+	store, err := Open(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	first := AlertKey("acme/project", 1)
+	original, err := store.AcceptAlert(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := store.AcceptAlerts(ctx, []AlertID{first, {"ACME/PROJECT", 1}, {"acme/project", 2}, {"other/project", 1}})
+	if err != nil || len(accepted) != 3 || !accepted[first].Equal(original) {
+		t.Fatal("batch did not deduplicate alerts or retain the existing decision time", err)
+	}
+	if !accepted[AlertKey("acme/project", 2)].Equal(accepted[AlertKey("other/project", 1)]) {
+		t.Fatal("new decisions in the same batch have different timestamps")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.ListAcceptedAlerts(ctx)
+	if err != nil || len(restored) != 3 || !restored[first].Equal(original) || restored[AlertKey("acme/project", 2)].IsZero() || restored[AlertKey("other/project", 1)].IsZero() {
+		t.Fatal("selected decisions did not survive restart", err)
+	}
+}
+
+func TestAcceptAlertsRollsBackWholeSelectionOnWriteFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(filepath.Join(t.TempDir(), "ghal.db"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first := AlertKey("acme/project", 1)
+	original, err := store.AcceptAlert(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The second insert violates SQLite's alert number constraint after a valid write.
+	accepted, err := store.AcceptAlerts(ctx, []AlertID{{"acme/project", 2}, {"acme/project", 0}})
+	if err == nil || accepted != nil {
+		t.Fatal("partially failed batch was accepted")
+	}
+	remaining, err := store.ListAcceptedAlerts(ctx)
+	if err != nil || len(remaining) != 1 || !remaining[first].Equal(original) {
+		t.Fatal("failed batch left a partial write or changed an existing decision", err)
+	}
+}
