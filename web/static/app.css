@@ -207,7 +207,8 @@ tbody tr:hover { background: #fdfefa; }
   .filters > .button { align-self: flex-end; }
   .input { font-size: 16px; }
   .table-footer { flex-wrap: wrap; gap: 14px; padding: 16px; }
-  .pagination { gap: 10px; }
+  .pagination { flex-wrap: wrap; gap: 6px; }
+  .pagination .button { padding-inline: 8px; }
   .empty-state { padding: 38px 20px; }
   .empty-actions { flex-direction: column; gap: 15px; }
   .connection-card, .connection-form, .connection-empty { padding: 20px; }

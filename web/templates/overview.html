@@ -111,9 +111,11 @@
     <div class="table-footer">
       <span>{{if .MatchCount}}{{.Start}}-{{.End}} of {{.MatchCount}} alerts{{else}}0 alerts{{end}}</span>
       <nav class="pagination" aria-label="Pagination">
+        {{if gt .Page 1}}<a class="button button-outline button-small" href="{{.PageURL 1}}">First</a>{{else}}<span class="button button-outline button-small" aria-disabled="true">First</span>{{end}}
         {{if gt .Page 1}}<a class="button button-outline button-small" href="{{.PageURL (add .Page -1)}}">Previous</a>{{else}}<span class="button button-outline button-small" aria-disabled="true">Previous</span>{{end}}
         <span>{{.Page}} / {{.Pages}}</span>
         {{if lt .Page .Pages}}<a class="button button-outline button-small" href="{{.PageURL (add .Page 1)}}">Next</a>{{else}}<span class="button button-outline button-small" aria-disabled="true">Next</span>{{end}}
+        {{if lt .Page .Pages}}<a class="button button-outline button-small" href="{{.PageURL .Pages}}">Last</a>{{else}}<span class="button button-outline button-small" aria-disabled="true">Last</span>{{end}}
       </nav>
     </div>
   </section>
