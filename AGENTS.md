@@ -10,6 +10,8 @@ Build `dbaui` (DependaBot Alerts UI), a simple Go web application that aggregate
 - Allow users to configure multiple GitHub personal access tokens (PATs) and their associated GitHub accounts and organizations.
 - Display all Dependabot alerts across the configured accounts and organizations in one UI. Handle GitHub API pagination so alerts are not silently omitted.
 - Treat PATs as secrets. Do not expose them in logs, error messages, or alert responses.
+- Persist PATs and connection configuration in SQLite, shared across the deployment. Encrypt PATs at rest and retain the encryption key alongside deployment data unless an external key file is configured.
+- Provide a Dockerfile and sample Docker Compose deployment with persistent storage. Keep deployment setup simple.
 
 ## Workflow and writing
 

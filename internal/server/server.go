@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"dbaui/internal/github"
+	"dbaui/internal/storage"
 	"dbaui/web"
 
 	"github.com/go-chi/chi/v5"
@@ -28,14 +29,20 @@ type GitHub interface {
 
 type Server struct {
 	github    GitHub
-	sessions  sessions
+	state     *state
+	store     *storage.Store
 	templates *template.Template
 }
 
-func New(client GitHub, secureCookies bool) http.Handler {
+func New(client GitHub, store *storage.Store) (http.Handler, error) {
+	connections, err := store.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
 		github:    client,
-		sessions:  sessions{entries: make(map[string]sessionEntry), secure: secureCookies},
+		state:     &state{connections: connections},
+		store:     store,
 		templates: template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
 	}
 	r := chi.NewRouter()
@@ -49,9 +56,7 @@ func New(client GitHub, secureCookies bool) http.Handler {
 				next.ServeHTTP(w, r)
 			})
 		})
-		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-		})
+		r.Get("/health", s.health)
 		r.Get("/connections", s.listConnections)
 		r.Post("/connections", s.addConnection)
 		r.Delete("/connections/{id}", s.deleteConnection)
@@ -70,7 +75,7 @@ func New(client GitHub, secureCookies bool) http.Handler {
 	r.Get("/alerts.csv", s.exportCSV)
 	r.Get("/demo", s.demoPage)
 	r.Get("/demo/alerts.csv", s.exportDemoCSV)
-	return r
+	return r, nil
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -94,11 +99,8 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func (s *Server) listConnections(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return
-	}
-	writeJSON(w, http.StatusOK, session.snapshot())
+	state := s.state
+	writeJSON(w, http.StatusOK, state.snapshot())
 }
 
 var ownerPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]{0,38}$`)
@@ -133,10 +135,6 @@ type requestError struct {
 }
 
 func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return
-	}
 	if media := strings.Split(r.Header.Get("Content-Type"), ";")[0]; media != "application/json" {
 		writeError(w, http.StatusUnsupportedMediaType, "Send the connection as JSON.")
 		return
@@ -154,7 +152,7 @@ func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Send a single JSON object.")
 		return
 	}
-	conn, failure := s.createConnection(r.Context(), session, input)
+	conn, failure := s.createConnection(r.Context(), input)
 	if failure != nil {
 		writeError(w, failure.status, failure.message)
 		return
@@ -162,7 +160,7 @@ func (s *Server) addConnection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, conn)
 }
 
-func (s *Server) createConnection(ctx context.Context, session *session, input connectionInput) (github.Connection, *requestError) {
+func (s *Server) createConnection(ctx context.Context, input connectionInput) (github.Connection, *requestError) {
 	fail := func(status int, message string) (github.Connection, *requestError) {
 		return github.Connection{}, &requestError{status, message}
 	}
@@ -204,47 +202,47 @@ func (s *Server) createConnection(ctx context.Context, session *session, input c
 		accounts = append(accounts, login)
 	}
 	conn := github.Connection{ID: rand.Text(), Label: input.Label, Login: login, Accounts: accounts, Organizations: orgs, Token: input.Token}
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	if len(session.connections) >= 10 {
-		return fail(http.StatusConflict, "A session supports up to 10 connections.")
+	state := s.state
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.connections) >= 10 {
+		return fail(http.StatusConflict, "A deployment supports up to 10 connections.")
 	}
-	session.connections = append(session.connections, conn)
-	session.invalidateLocked()
+	if err := s.store.Add(ctx, conn); err != nil {
+		return fail(http.StatusInternalServerError, "Could not save connection to SQLite.")
+	}
+	state.connections = append(state.connections, conn)
+	state.invalidateLocked()
 	return conn, nil
 }
 
 func (s *Server) deleteConnection(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return
-	}
-	if !removeConnection(session, chi.URLParam(r, "id")) {
-		writeError(w, http.StatusNotFound, "Connection not found.")
+	if failure := s.removeConnection(r.Context(), chi.URLParam(r, "id")); failure != nil {
+		writeError(w, failure.status, failure.message)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func removeConnection(session *session, id string) bool {
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	for i, conn := range session.connections {
+func (s *Server) removeConnection(ctx context.Context, id string) *requestError {
+	state := s.state
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	for i, conn := range state.connections {
 		if conn.ID == id {
-			session.connections = slices.Delete(session.connections, i, i+1)
-			session.invalidateLocked()
-			return true
+			if err := s.store.Delete(ctx, id); err != nil {
+				return &requestError{http.StatusInternalServerError, "Could not delete connection from SQLite."}
+			}
+			state.connections = slices.Delete(state.connections, i, i+1)
+			state.invalidateLocked()
+			return nil
 		}
 	}
-	return false
+	return &requestError{http.StatusNotFound, "Connection not found."}
 }
 
 func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return
-	}
-	result, failure := s.refreshSession(r.Context(), session)
+	result, failure := s.refresh(r.Context())
 	if failure != nil {
 		writeError(w, failure.status, failure.message)
 		return
@@ -252,29 +250,40 @@ func (s *Server) alerts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) refreshSession(ctx context.Context, session *session) (github.Result, *requestError) {
-	session.mu.Lock()
-	if session.refreshing {
-		session.mu.Unlock()
+func (s *Server) refresh(ctx context.Context) (github.Result, *requestError) {
+	state := s.state
+	state.mu.Lock()
+	if state.refreshing {
+		state.mu.Unlock()
 		return github.Result{}, &requestError{http.StatusConflict, "A refresh is already running. Wait for it to finish."}
 	}
-	session.refreshing = true
-	connections := append([]github.Connection{}, session.connections...)
-	revision := session.revision
-	session.mu.Unlock()
-	defer func() { session.mu.Lock(); session.refreshing = false; session.mu.Unlock() }()
+	state.refreshing = true
+	connections := append([]github.Connection{}, state.connections...)
+	revision := state.revision
+	state.mu.Unlock()
+	defer func() { state.mu.Lock(); state.refreshing = false; state.mu.Unlock() }()
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	result := s.github.Fetch(ctx, connections)
 	if result.FetchedAt.IsZero() {
 		result.FetchedAt = time.Now().UTC()
 	}
-	session.mu.Lock()
-	defer session.mu.Unlock()
-	if session.revision != revision {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.revision != revision {
 		return github.Result{}, &requestError{http.StatusConflict, "Connections changed during the refresh. Refresh alerts again."}
 	}
-	session.result = result
-	session.loaded = true
+	state.result = result
+	state.loaded = true
 	return result, nil
+}
+
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "SQLite is unavailable.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

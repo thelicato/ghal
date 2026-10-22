@@ -4,7 +4,7 @@ DependaBot Alerts UI. A small Go web application that brings Dependabot alerts f
 
 ## Run locally
 
-Requires Go 1.25+.
+Requires Go 1.25+ and a C compiler such as GCC for the SQLite driver. Docker includes the required build tools.
 
 ```sh
 make build
@@ -12,6 +12,21 @@ make build
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Add a connection with a PAT and account or organization names. Leave both source fields empty to use the token's own account. Add more connections for additional PATs. The [sample alerts](http://127.0.0.1:8080/demo) page lets you inspect the interface without credentials.
+
+## Docker deployment
+
+```sh
+docker compose -f compose.example.yaml up -d --build
+```
+
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Set `DBAUI_PORT` when running Compose to use a different host port. The sample runs as a non-root user, includes an HTTP and SQLite healthcheck, and stores the database and generated encryption key in the `dbaui-data` named volume. Container restarts and recreation retain this volume. `docker compose -f compose.example.yaml down` also retains it; adding `-v` deletes saved connections and the key.
+
+To build and run without Compose:
+
+```sh
+docker build -t dbaui .
+docker run -d --name dbaui -p 127.0.0.1:8080:8080 -v dbaui-data:/data dbaui
+```
 
 ## Features
 
@@ -23,7 +38,7 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Add a connection with a PAT
 - Show per-source failures and preserve successfully fetched pages when another page or source fails.
 - Render pages, submit connection forms, filter, paginate, and export CSV without JavaScript. A small optional script adds submit feedback.
 
-Adding or removing a connection refreshes the cached alerts. Use **Refresh alerts** to fetch changes from GitHub. Search, filters, pagination, and CSV export use the latest result stored in the browser's server-side session, without repeating GitHub requests. Changing connections invalidates that result; an in-flight refresh cannot restore alerts from a disconnected source.
+Adding or removing a connection refreshes the cached alerts. Use **Refresh alerts** to fetch changes from GitHub. Search, filters, pagination, and CSV export use the deployment's latest result without repeating GitHub requests. Changing connections invalidates that result; an in-flight refresh cannot restore alerts from a disconnected source. Alerts are cached in memory, so refresh them after restarting the application.
 
 ## GitHub access
 
@@ -31,11 +46,21 @@ Fine-grained PATs need **Dependabot alerts: read** and repository access for eac
 
 Personal account discovery uses the authenticated user's owned and collaborator repositories, then selects repositories matching the configured account names. Only repositories visible to the PAT can be included. GitHub does not expose inaccessible repositories, so even a successful fetch cannot establish complete coverage beyond the token's access. Dependabot must be enabled on the repositories. Organization access failures appear in the dashboard; there is no silent fallback to a partial list of public repositories.
 
-## Sessions and deployment
+## Storage and access
 
-PATs and fetched alerts stay in server memory, isolated by a random HttpOnly, SameSite=Strict session cookie. Connections expire after 12 hours, are removed from the session store on the next session request, and are lost when the server restarts. Tokens are never stored in browser storage, written to disk, or included in connection responses or HTML. The app does not provide durable configuration or application login.
+Connections and PATs are shared across the deployment and persist in SQLite. The default local database is `data/dbaui.db`. PATs are encrypted with AES-256-GCM using a generated 32-byte key at `data/dbaui.db.key`. Database and generated key files use owner-only permissions. PATs are never included in connection responses or HTML. The key is kept separately from the encrypted database; access to both files permits decryption.
 
-The server listens on loopback by default. To serve behind an HTTPS reverse proxy, use `./bin/dbaui -addr :8080 -secure-cookies` and protect access at the proxy. Requests to GitHub remain read-only. Each refresh has a five-minute budget; timeout and permission failures are reported alongside any alerts already retrieved. Multiple application instances do not share sessions.
+Back up the database and its original key together while the application is stopped, or use SQLite-aware backup tooling. Restore both files together. An existing database will not start with a missing or incorrect key. To keep the key outside the data directory, set `DBAUI_KEY_FILE` to a mounted key file containing exactly 32 raw bytes. Keep that key when recreating the container or restoring a backup.
+
+Everyone who can access this instance can view alerts and manage shared connections. The app has no login. Local execution and the sample Compose port bind to loopback; use an authenticated HTTPS reverse proxy when exposing the service. Requests to GitHub remain read-only. Each refresh has a five-minute budget, and failures appear alongside any alerts already retrieved. Run one application instance per database; the alert cache is not synchronized between processes.
+
+| Flag | Environment variable | Default |
+| --- | --- | --- |
+| `-addr` | `DBAUI_ADDR` | `127.0.0.1:8080` (`:8080` in Docker) |
+| `-db` | `DBAUI_DATABASE` | `data/dbaui.db` (`/data/dbaui.db` in Docker) |
+| `-key-file` | `DBAUI_KEY_FILE` | Database path followed by `.key` |
+
+Run `./bin/dbaui -healthcheck` with the same address configuration to check a running server without opening a database or starting another server.
 
 ## Development
 
@@ -47,7 +72,7 @@ go run ./cmd/dbaui
 
 Go's `html/template` renders the pages in `web/templates/`. Styles and the optional script live in `web/static/`. Both are embedded in the Go binary. Restart `go run` or rebuild the binary after changing them.
 
-chi is the only Go dependency. The UI adapts shadcn/ui design tokens and component styles to native HTML and plain CSS. It preserves the visual style without requiring React components. Node.js, npm, Tailwind compilation, and frontend build tools are not required. The existing JSON endpoints under `/api` remain available.
+The only Go dependencies are chi and `mattn/go-sqlite3`. The UI adapts shadcn/ui design tokens and component styles to native HTML and plain CSS. It preserves the visual style without requiring React components. Node.js, npm, Tailwind compilation, and frontend build tools are not required. The existing JSON endpoints under `/api` remain available.
 
 ## Checks
 
@@ -56,4 +81,4 @@ make test
 make build
 ```
 
-Go tests cover GitHub pagination and deduplication, partial results, credential safety, HTML escaping, native forms, server-side filtering and pagination, CSV export, session isolation and expiration, cross-origin writes, and concurrent refreshes. Tests use mock GitHub responses and do not require a real PAT.
+Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, CSV export, cross-origin writes, and concurrent refreshes. Tests use mock GitHub responses and do not require a real PAT.

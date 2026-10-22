@@ -227,20 +227,13 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data pag
 	_, _ = buffer.WriteTo(w)
 }
 
-func (s *Server) sessionPage(w http.ResponseWriter, r *http.Request) (pageData, *session) {
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return pageData{}, nil
-	}
-	connections, result, loaded, refreshing := session.pageSnapshot()
-	return makePage(r, connections, result, loaded, refreshing), session
+func (s *Server) currentPage(r *http.Request) pageData {
+	connections, result, loaded, refreshing := s.state.pageSnapshot()
+	return makePage(r, connections, result, loaded, refreshing)
 }
 
 func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request) {
-	p, session := s.sessionPage(w, r)
-	if session != nil {
-		s.render(w, http.StatusOK, "overview", p)
-	}
+	s.render(w, http.StatusOK, "overview", s.currentPage(r))
 }
 
 func (s *Server) connectionsPage(w http.ResponseWriter, r *http.Request) {
@@ -248,10 +241,7 @@ func (s *Server) connectionsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderConnections(w http.ResponseWriter, r *http.Request, status int, message string, values formValues) {
-	p, session := s.sessionPage(w, r)
-	if session == nil {
-		return
-	}
+	p := s.currentPage(r)
 	p.Title, p.View, p.Error, p.Form = "Connections", "connections", message, values
 	s.render(w, status, "connections", p)
 }
@@ -263,22 +253,18 @@ func (s *Server) createConnectionPage(w http.ResponseWriter, r *http.Request) {
 		s.renderConnections(w, r, http.StatusBadRequest, "Enter a valid connection.", formValues{})
 		return
 	}
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return
-	}
 	split := func(value string) []string {
 		return strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
 	}
 	values := formValues{r.PostForm.Get("label"), r.PostForm.Get("accounts"), r.PostForm.Get("organizations")}
-	_, failure := s.createConnection(r.Context(), session, connectionInput{
+	_, failure := s.createConnection(r.Context(), connectionInput{
 		Label: values.Label, Token: r.PostForm.Get("token"), Accounts: split(values.Accounts), Organizations: split(values.Organizations),
 	})
 	if failure != nil {
 		s.renderConnections(w, r, failure.status, failure.message, values)
 		return
 	}
-	if _, failure = s.refreshSession(r.Context(), session); failure != nil {
+	if _, failure = s.refresh(r.Context()); failure != nil {
 		s.renderConnections(w, r, failure.status, "Connection added. "+failure.message, formValues{})
 		return
 	}
@@ -286,15 +272,11 @@ func (s *Server) createConnectionPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) removeConnectionPage(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.get(w, r)
-	if session == nil {
+	if failure := s.removeConnection(r.Context(), chi.URLParam(r, "id")); failure != nil {
+		s.renderConnections(w, r, failure.status, failure.message, formValues{})
 		return
 	}
-	if !removeConnection(session, chi.URLParam(r, "id")) {
-		s.renderConnections(w, r, http.StatusNotFound, "Connection not found.", formValues{})
-		return
-	}
-	if _, failure := s.refreshSession(r.Context(), session); failure != nil {
+	if _, failure := s.refresh(r.Context()); failure != nil {
 		s.renderConnections(w, r, failure.status, "Connection removed. "+failure.message, formValues{})
 		return
 	}
@@ -302,12 +284,8 @@ func (s *Server) removeConnectionPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) refreshPage(w http.ResponseWriter, r *http.Request) {
-	session := s.sessions.get(w, r)
-	if session == nil {
-		return
-	}
-	if _, failure := s.refreshSession(r.Context(), session); failure != nil {
-		connections, result, loaded, refreshing := session.pageSnapshot()
+	if _, failure := s.refresh(r.Context()); failure != nil {
+		connections, result, loaded, refreshing := s.state.pageSnapshot()
 		p := makePage(r, connections, result, loaded, refreshing)
 		p.Error = failure.message
 		s.render(w, failure.status, "overview", p)
@@ -326,10 +304,7 @@ func (s *Server) demoPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
-	p, session := s.sessionPage(w, r)
-	if session != nil {
-		writeCSV(w, p)
-	}
+	writeCSV(w, s.currentPage(r))
 }
 
 func (s *Server) exportDemoCSV(w http.ResponseWriter, r *http.Request) { writeCSV(w, demoPageData(r)) }

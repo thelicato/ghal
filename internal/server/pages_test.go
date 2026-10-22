@@ -40,7 +40,7 @@ func pageAlert(pkg, repo, severity, state string) github.Alert {
 }
 
 func TestPagesRenderWithoutFrontendBuild(t *testing.T) {
-	handler := New(&fakeGitHub{}, false)
+	handler := newTestServer(t, &fakeGitHub{})
 	for path, want := range map[string]string{"/": "No connections configured", "/connections": `name="token"`, "/demo": "Prototype pollution in lodash"} {
 		res := request(handler, "GET", path, "", nil)
 		if res.Code != 200 || !strings.Contains(res.Body.String(), want) {
@@ -76,9 +76,9 @@ func TestNativeConnectionFormsAndCachedRendering(t *testing.T) {
 		}
 		return result
 	}}
-	handler := New(client, false)
+	handler := newTestServer(t, client)
 	res := request(handler, "GET", "/", "", nil)
-	cookie := res.Result().Cookies()[0]
+	cookie := browserCookie()
 	res = formRequest(handler, "/connections", url.Values{"label": {"Work"}, "token": {"never-render-this-token"}, "accounts": {"octocat, OCTOCAT"}}, cookie)
 	if res.Code != 303 || res.Header().Get("Location") != "/" {
 		t.Fatalf("native connection form did not redirect: status=%d body=%s", res.Code, res.Body.String())
@@ -95,8 +95,8 @@ func TestNativeConnectionFormsAndCachedRendering(t *testing.T) {
 		t.Fatal("connection metadata missing or token rendered")
 	}
 	other := request(handler, "GET", "/", "", nil)
-	if strings.Contains(other.Body.String(), "native-package") {
-		t.Fatal("HTML alerts leaked across browser sessions")
+	if !strings.Contains(other.Body.String(), "native-package") {
+		t.Fatal("HTML alerts are not shared across browsers")
 	}
 	listing := request(handler, "GET", "/api/connections", "", cookie)
 	var connections []github.Connection
@@ -114,8 +114,8 @@ func TestNativeConnectionFormsAndCachedRendering(t *testing.T) {
 }
 
 func TestFormErrorsPreserveOnlyNonSecretFields(t *testing.T) {
-	handler := New(&fakeGitHub{}, false)
-	cookie := browserSession(t, handler)
+	handler := newTestServer(t, &fakeGitHub{})
+	cookie := browserCookie()
 	res := formRequest(handler, "/connections", url.Values{"label": {`<img src=x onerror=alert(1)>`}, "token": {"never-render-this-token"}, "accounts": {"invalid/name"}}, cookie)
 	body := res.Body.String()
 	if res.Code != 400 || !strings.Contains(body, "&lt;img") || strings.Contains(body, `<img src=x`) || strings.Contains(body, "never-render-this-token") {
@@ -168,8 +168,8 @@ func TestHTMLAndCSVRejectUnsafeContent(t *testing.T) {
 	client := &fakeGitHub{fetch: func(context.Context, []github.Connection) github.Result {
 		return github.Result{Alerts: []github.Alert{alert}}
 	}}
-	handler := New(client, false)
-	cookie := browserSession(t, handler)
+	handler := newTestServer(t, client)
+	cookie := browserCookie()
 	formRequest(handler, "/connections", url.Values{"token": {"test-secret"}}, cookie)
 	res := request(handler, "GET", "/", "", cookie)
 	if res.Code != 200 || strings.Contains(res.Body.String(), `<script>alert(1)</script>`) || strings.Contains(res.Body.String(), `href="javascript:`) {
@@ -186,8 +186,8 @@ func TestRefreshFormPreservesFiltersAndPartialResults(t *testing.T) {
 	client := &fakeGitHub{fetch: func(context.Context, []github.Connection) github.Result {
 		return github.Result{Alerts: []github.Alert{pageAlert("partial-package", "octocat/project", "high", "open")}, Errors: []github.SourceError{{Source: "restricted", Message: "Permission required"}}}
 	}}
-	handler := New(client, false)
-	cookie := browserSession(t, handler)
+	handler := newTestServer(t, client)
+	cookie := browserCookie()
 	res := formRequest(handler, "/refresh?state=all&q=partial", nil, cookie)
 	if res.Code != 303 || res.Header().Get("Location") != "/?state=all&q=partial" {
 		t.Fatal("refresh did not preserve the current view")
@@ -205,8 +205,8 @@ func TestConnectionChangesDiscardInFlightResults(t *testing.T) {
 		<-release
 		return github.Result{Alerts: []github.Alert{pageAlert("stale-package", "octocat/project", "high", "open")}}
 	}}
-	handler := New(client, false)
-	cookie := browserSession(t, handler)
+	handler := newTestServer(t, client)
+	cookie := browserCookie()
 	created := request(handler, "POST", "/api/connections", `{"token":"test-secret"}`, cookie)
 	var conn github.Connection
 	_ = json.Unmarshal(created.Body.Bytes(), &conn)
@@ -227,7 +227,7 @@ func TestConnectionChangesDiscardInFlightResults(t *testing.T) {
 
 func TestNativeFormsRejectCrossOriginWrites(t *testing.T) {
 	client := &fakeGitHub{}
-	handler := New(client, false)
+	handler := newTestServer(t, client)
 	for _, path := range []string{"/connections", "/refresh", "/connections/example/delete"} {
 		req := httptest.NewRequest("POST", "http://localhost"+path, strings.NewReader("token=test-secret"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

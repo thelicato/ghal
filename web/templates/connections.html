@@ -28,7 +28,7 @@
         <button type="submit" class="button" {{if $.Refreshing}}disabled{{end}}>{{template "icon-plus"}}<span>Add connection</span></button>
         <p class="submit-status" role="status" aria-live="polite"></p>
       </form>
-      <details class="connection-help"><summary>Permissions and storage</summary><p>Organization-wide alerts require an organization owner or security manager. Authorize the PAT for SSO when required.</p><p>Connections are stored in server memory for up to 12 hours and cleared on restart.</p><a class="text-link" href="https://docs.github.com/en/rest/dependabot/alerts" target="_blank" rel="noreferrer">GitHub API permissions</a></details>
+      <details class="connection-help"><summary>Permissions and storage</summary><p>Organization-wide alerts require an organization owner or security manager. Authorize the PAT for SSO when required.</p><p>Connections are shared across this deployment and saved in SQLite. PATs are encrypted at rest.</p><a class="text-link" href="https://docs.github.com/en/rest/dependabot/alerts" target="_blank" rel="noreferrer">GitHub API permissions</a></details>
     </section>
   </div>
 {{template "foot" .}}

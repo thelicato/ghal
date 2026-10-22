@@ -1,0 +1,14 @@
+.git
+.agents
+.codex
+.aws
+bin
+data
+node_modules
+web/dist
+*.db
+*.db-*
+*.key
+*.log
+.env
+.env.*

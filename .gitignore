@@ -1,6 +1,10 @@
 /bin/
 /node_modules/
 /web/dist/
+/data/
+*.db
+*.db-*
+*.key
 *.log
 .env
 .env.*

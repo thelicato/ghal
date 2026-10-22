@@ -2,15 +2,18 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"dbaui/internal/github"
+	"dbaui/internal/storage"
 )
 
 type fakeGitHub struct {
@@ -46,23 +49,26 @@ func request(handler http.Handler, method, path, body string, cookie *http.Cooki
 	return rec
 }
 
-func browserSession(t *testing.T, handler http.Handler) *http.Cookie {
+func newTestServer(t *testing.T, client GitHub) http.Handler {
 	t.Helper()
-	res := request(handler, "GET", "/api/connections", "", nil)
-	cookies := res.Result().Cookies()
-	if res.Code != 200 || len(cookies) != 1 {
-		t.Fatalf("failed to create browser session: status=%d", res.Code)
+	store, err := storage.Open(filepath.Join(t.TempDir(), "dbaui.db"), "")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteStrictMode {
-		t.Fatal("session cookie is missing security attributes")
+	t.Cleanup(func() { _ = store.Close() })
+	handler, err := New(client, store)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return cookies[0]
+	return handler
 }
 
-func TestConnectionLifecycleAndSessionIsolation(t *testing.T) {
+func browserCookie() *http.Cookie { return &http.Cookie{Name: "test-browser", Value: rand.Text()} }
+
+func TestConnectionLifecycleAndDeploymentSharing(t *testing.T) {
 	client := &fakeGitHub{}
-	handler := New(client, false)
-	first, second := browserSession(t, handler), browserSession(t, handler)
+	handler := newTestServer(t, client)
+	first, second := browserCookie(), browserCookie()
 	res := request(handler, "POST", "/api/connections", `{"label":"Work","token":"test-secret","accounts":["Octocat","octocat"],"organizations":["acme"]}`, first)
 	if res.Code != 201 {
 		t.Fatalf("create failed: %s", res.Body.String())
@@ -85,14 +91,10 @@ func TestConnectionLifecycleAndSessionIsolation(t *testing.T) {
 		t.Fatal("connection response can be cached")
 	}
 	res = request(handler, "GET", "/api/connections", "", second)
-	if strings.TrimSpace(res.Body.String()) != "[]" {
-		t.Fatal("connections leaked into another browser session")
+	if !strings.Contains(res.Body.String(), "Work") {
+		t.Fatal("saved connections are not shared across browsers")
 	}
 	res = request(handler, "DELETE", "/api/connections/"+connection.ID, "", second)
-	if res.Code != 404 {
-		t.Fatal("another browser can delete this connection")
-	}
-	res = request(handler, "DELETE", "/api/connections/"+connection.ID, "", first)
 	if res.Code != 204 {
 		t.Fatalf("delete failed: %d", res.Code)
 	}
@@ -103,8 +105,8 @@ func TestConnectionLifecycleAndSessionIsolation(t *testing.T) {
 }
 
 func TestConnectionDefaultsAndTokenValidation(t *testing.T) {
-	handler := New(&fakeGitHub{}, false)
-	cookie := browserSession(t, handler)
+	handler := newTestServer(t, &fakeGitHub{})
+	cookie := browserCookie()
 	res := request(handler, "POST", "/api/connections", `{"token":"test-secret"}`, cookie)
 	var connection github.Connection
 	_ = json.Unmarshal(res.Body.Bytes(), &connection)
@@ -130,8 +132,8 @@ func TestInvalidConnectionsNeverReachGitHub(t *testing.T) {
 	} {
 		t.Run(body[:min(50, len(body))], func(t *testing.T) {
 			client := &fakeGitHub{}
-			handler := New(client, false)
-			res := request(handler, "POST", "/api/connections", body, browserSession(t, handler))
+			handler := newTestServer(t, client)
+			res := request(handler, "POST", "/api/connections", body, browserCookie())
 			if res.Code != 400 || client.loginCalls.Load() != 0 {
 				t.Fatalf("invalid input reached GitHub: status=%d calls=%d", res.Code, client.loginCalls.Load())
 			}
@@ -141,7 +143,7 @@ func TestInvalidConnectionsNeverReachGitHub(t *testing.T) {
 
 func TestCrossOriginWritesAreRejected(t *testing.T) {
 	client := &fakeGitHub{}
-	handler := New(client, false)
+	handler := newTestServer(t, client)
 	req := httptest.NewRequest("POST", "http://localhost/api/connections", strings.NewReader(`{"token":"test-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://evil.example")
@@ -153,7 +155,7 @@ func TestCrossOriginWritesAreRejected(t *testing.T) {
 	}
 }
 
-func TestAlertsOnlyUseCurrentBrowserCredentials(t *testing.T) {
+func TestAlertsUseSharedCredentialsWithoutExposingTokens(t *testing.T) {
 	var fetched int
 	client := &fakeGitHub{fetch: func(ctx context.Context, connections []github.Connection) github.Result {
 		fetched = len(connections)
@@ -162,16 +164,16 @@ func TestAlertsOnlyUseCurrentBrowserCredentials(t *testing.T) {
 		}
 		return github.Result{Alerts: []github.Alert{}, Errors: []github.SourceError{}}
 	}}
-	handler := New(client, false)
-	first, second := browserSession(t, handler), browserSession(t, handler)
+	handler := newTestServer(t, client)
+	first, second := browserCookie(), browserCookie()
 	request(handler, "POST", "/api/connections", `{"token":"test-secret"}`, first)
 	res := request(handler, "GET", "/api/alerts", "", first)
 	if res.Code != 200 || fetched != 1 || strings.Contains(res.Body.String(), "test-secret") {
-		t.Fatal("alert fetch did not preserve credential isolation")
+		t.Fatal("alert fetch did not use saved credentials or exposed a token")
 	}
 	request(handler, "GET", "/api/alerts", "", second)
-	if fetched != 0 {
-		t.Fatal("another browser's credentials were used")
+	if fetched != 1 {
+		t.Fatal("another browser could not refresh shared connections")
 	}
 }
 
@@ -182,8 +184,8 @@ func TestConcurrentRefreshIsRejected(t *testing.T) {
 		<-release
 		return github.Result{}
 	}}
-	handler := New(client, false)
-	cookie := browserSession(t, handler)
+	handler := newTestServer(t, client)
+	cookie := browserCookie()
 	done := make(chan struct{})
 	go func() { defer close(done); request(handler, "GET", "/api/alerts", "", cookie) }()
 	<-started
@@ -195,28 +197,8 @@ func TestConcurrentRefreshIsRejected(t *testing.T) {
 	}
 }
 
-func TestExpiredSessionsAndSecureCookies(t *testing.T) {
-	s := sessions{entries: make(map[string]sessionEntry), secure: true}
-	res := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "http://localhost/api/connections", nil)
-	first := s.get(res, req)
-	cookie := res.Result().Cookies()[0]
-	if !cookie.Secure {
-		t.Fatal("HTTPS deployment cookie is not secure")
-	}
-	s.entries[cookie.Value] = sessionEntry{value: first, expires: time.Now().Add(-time.Minute)}
-	req.AddCookie(cookie)
-	second := s.get(httptest.NewRecorder(), req)
-	if first == second {
-		t.Fatal("expired browser session was reused")
-	}
-	if _, exists := s.entries[cookie.Value]; exists {
-		t.Fatal("expired credentials were not evicted")
-	}
-}
-
 func TestAPI404AndSecurityHeaders(t *testing.T) {
-	res := request(New(&fakeGitHub{}, false), "GET", "/api/missing", "", nil)
+	res := request(newTestServer(t, &fakeGitHub{}), "GET", "/api/missing", "", nil)
 	if res.Code != 404 || !strings.Contains(res.Header().Get("Content-Type"), "application/json") {
 		t.Fatal("unknown API endpoint did not return a JSON error")
 	}
