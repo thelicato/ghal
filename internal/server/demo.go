@@ -45,7 +45,7 @@ func demoPageData(r *http.Request) pageData {
 		}
 		result.Alerts = append(result.Alerts, alert)
 	}
-	p := makePage(r, connections, result, true, false)
+	p := makePage(r, connections, result, true, false, nil)
 	p.Demo, p.BasePath = true, "/demo"
 	for i := range p.Summaries {
 		p.Summaries[i].URL = p.URL("stat", p.Summaries[i].Severity)

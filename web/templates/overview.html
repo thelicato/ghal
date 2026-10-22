@@ -29,6 +29,7 @@
     <div class="alerts-toolbar">
       <nav class="state-tabs" aria-label="Alert state">
         <a href="{{.URL "state" "open"}}" {{if eq .Filters.State "open"}}aria-current="page"{{end}}>Open <span class="tab-count">{{index .Counts "open"}}</span></a>
+        <a href="{{.URL "state" "accepted"}}" {{if eq .Filters.State "accepted"}}aria-current="page"{{end}}>Accepted <span class="tab-count">{{index .Counts "accepted"}}</span></a>
         <a href="{{.URL "state" "fixed"}}" {{if eq .Filters.State "fixed"}}aria-current="page"{{end}}>Fixed <span class="tab-count">{{index .Counts "fixed"}}</span></a>
         <a href="{{.URL "state" "dismissed"}}" {{if eq .Filters.State "dismissed"}}aria-current="page"{{end}}>Dismissed <span class="tab-count">{{index .Counts "dismissed"}}</span></a>
         <a href="{{.URL "state" "all"}}" {{if eq .Filters.State "all"}}aria-current="page"{{end}}>All <span class="tab-count">{{.Total}}</span></a>
@@ -37,6 +38,8 @@
     </div>
     <form class="filters" method="get" action="{{.BasePath}}" role="search">
       <input type="hidden" name="state" value="{{.Filters.State}}">
+      <input type="hidden" name="sort" value="{{.Filters.Sort}}">
+      <input type="hidden" name="direction" value="{{.Filters.Direction}}">
       <div class="field search-field"><label for="search">Search alerts</label><input class="input" id="search" name="q" type="search" value="{{.Filters.Query}}" placeholder="Package, repository, or CVE"></div>
       <div class="field"><label for="severity">Severity</label><select class="input" id="severity" name="severity"><option value="all">All severities</option>{{range .Summaries}}<option value="{{.Severity}}" {{if eq $.Filters.Severity .Severity}}selected{{end}}>{{label .Severity}}</option>{{end}}</select></div>
       <div class="field"><label for="owner">Source</label><select class="input" id="owner" name="owner"><option value="">All sources</option>{{range .Owners}}<option value="{{.}}" {{if eq $.Filters.Owner .}}selected{{end}}>{{.}}</option>{{end}}</select></div>
@@ -46,7 +49,7 @@
     {{if .Rows}}
     <div class="table-scroll" role="region" aria-label="Alert results" tabindex="0">
       <table>
-        <thead><tr><th scope="col">Dependency / vulnerability</th><th scope="col">Repository</th><th scope="col">Severity</th><th scope="col">State</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">GitHub link</span></th></tr></thead>
+        <thead><tr>{{range .SortHeaders}}<th scope="col" aria-sort="{{.Order}}"><a class="sort-link" href="{{.URL}}" aria-label="Sort by {{.Label}}">{{.Label}} <span class="sort-indicator" aria-hidden="true">{{.Indicator}}</span></a></th>{{end}}<th scope="col">Actions</th></tr></thead>
         <tbody>
           {{range .Rows}}
           <tr>
@@ -54,18 +57,35 @@
               <details class="alert-details">
                 <summary><span class="dependency-name">{{.Dependency.Package.Name}} <span class="badge ecosystem-badge">{{.Dependency.Package.Ecosystem}}</span></span><span class="vulnerability-summary">{{.SecurityAdvisory.Summary}}</span></summary>
                 <dl class="alert-detail">
+                  <div><dt>Alert</dt><dd>#{{.Number}}</dd></div>
                   <div><dt>Advisory</dt><dd>{{if .SecurityAdvisory.CVEID}}{{.SecurityAdvisory.CVEID}}{{else}}{{.SecurityAdvisory.GHSAID}}{{end}}</dd></div>
                   <div><dt>Vulnerable versions</dt><dd>{{if .SecurityVulnerability.VulnerableVersionRange}}{{.SecurityVulnerability.VulnerableVersionRange}}{{else}}Not specified{{end}}</dd></div>
                   <div><dt>First patched version</dt><dd>{{if .SecurityVulnerability.FirstPatchedVersion}}{{.SecurityVulnerability.FirstPatchedVersion.Identifier}}{{else}}No patch available{{end}}</dd></div>
                   <div><dt>Dependency scope</dt><dd>{{if .Dependency.Scope}}{{.Dependency.Scope}}{{else}}Not specified{{end}}</dd></div>
+                  {{if .Accepted}}<div><dt>Risk accepted locally</dt><dd><time datetime="{{.AcceptedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.AcceptedAt.UTC.Format "02 Jan 2006 15:04 UTC"}}</time></dd></div>{{end}}
                 </dl>
               </details>
             </td>
             <td><span class="repository-name">{{.Repository.FullName}}</span><span class="manifest-path">{{.Dependency.ManifestPath}}</span></td>
             <td><span class="badge severity-badge severity-{{.SecurityAdvisory.Severity}}"><span class="severity-dot"></span>{{label .SecurityAdvisory.Severity}}</span></td>
-            <td><span class="alert-state state-{{.State}}"><span class="state-dot"></span>{{label .State}}</span></td>
+            <td>{{if .Accepted}}<span class="badge accepted-badge">Accepted</span><span class="github-state">GitHub: {{label .State}}</span>{{else}}<span class="alert-state state-{{.State}}"><span class="state-dot"></span>{{label .State}}</span>{{end}}</td>
             <td class="updated-cell"><time datetime="{{.UpdatedAt}}" title="{{.UpdatedTitle}}">{{.Updated}}</time></td>
-            <td>{{if .Link}}<a href="{{.Link}}" class="github-link" target="_blank" rel="noreferrer" aria-label="Open {{.Dependency.Package.Name}} alert #{{.Number}} on GitHub">{{template "icon-arrow"}}</a>{{end}}</td>
+            <td><div class="alert-actions">
+              {{if .Accepted}}
+              <form method="post" action="{{$.AlertActionURL "reopen"}}" data-pending="Reopening...">
+                <input type="hidden" name="repository" value="{{.Repository.FullName}}"><input type="hidden" name="number" value="{{.Number}}">
+                <button class="button button-outline button-small" type="submit" aria-label="Reopen {{.Dependency.Package.Name}} alert #{{.Number}} in {{.Repository.FullName}}" title="Remove local risk acceptance">Reopen</button>
+              </form>
+              {{else if eq .State "open"}}
+              {{if $.Demo}}<button class="button button-outline button-small" type="button" title="Risk acceptance is unavailable for sample alerts" disabled>Accept risk</button>{{else}}
+              <form method="post" action="{{$.AlertActionURL "accept"}}" data-pending="Accepting...">
+                <input type="hidden" name="repository" value="{{.Repository.FullName}}"><input type="hidden" name="number" value="{{.Number}}">
+                <button class="button button-outline button-small" type="submit" aria-label="Accept risk for {{.Dependency.Package.Name}} alert #{{.Number}} in {{.Repository.FullName}}" title="Accept risk in ghal; GitHub stays unchanged">Accept risk</button>
+              </form>
+              {{end}}
+              {{end}}
+              {{if .Link}}<a href="{{.Link}}" class="github-link" target="_blank" rel="noreferrer" aria-label="Open {{.Dependency.Package.Name}} alert #{{.Number}} on GitHub">{{template "icon-arrow"}}</a>{{end}}
+            </div></td>
           </tr>
           {{end}}
         </tbody>

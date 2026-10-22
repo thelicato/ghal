@@ -39,9 +39,13 @@ func New(client GitHub, store *storage.Store) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	accepted, err := store.ListAcceptedAlerts(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
 		github:    client,
-		state:     &state{connections: connections},
+		state:     &state{connections: connections, accepted: accepted},
 		store:     store,
 		templates: template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
 	}
@@ -72,6 +76,8 @@ func New(client GitHub, store *storage.Store) (http.Handler, error) {
 	r.Post("/connections", s.createConnectionPage)
 	r.Post("/connections/{id}/delete", s.removeConnectionPage)
 	r.Post("/refresh", s.refreshPage)
+	r.Post("/alerts/accept", s.acceptAlertPage)
+	r.Post("/alerts/reopen", s.reopenAlertPage)
 	r.Get("/alerts.csv", s.exportCSV)
 	r.Get("/demo", s.demoPage)
 	r.Get("/demo/alerts.csv", s.exportDemoCSV)

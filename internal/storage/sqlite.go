@@ -1,4 +1,4 @@
-// Package storage persists shared GitHub connections in SQLite.
+// Package storage persists shared GitHub connections and alert decisions in SQLite.
 package storage
 
 import (
@@ -139,6 +139,12 @@ func (s *Store) initialize() error {
 			accounts TEXT NOT NULL,
 			organizations TEXT NOT NULL,
 			token BLOB NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS accepted_alerts (
+			repository TEXT NOT NULL,
+			alert_number INTEGER NOT NULL CHECK (alert_number > 0),
+			accepted_at TEXT NOT NULL,
+			PRIMARY KEY (repository, alert_number)
 		);
 	`)
 	if err != nil {

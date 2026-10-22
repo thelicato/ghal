@@ -9,6 +9,8 @@ Build `ghal`, a simple Go web application that aggregates GitHub Dependabot aler
 - Use readable text sizes and a functional interface. Avoid promotional copy, workspace panels, privacy badges, and decorative reassurance components.
 - Allow users to configure multiple GitHub personal access tokens (PATs) and their associated GitHub accounts and organizations.
 - Display all Dependabot alerts across the configured accounts and organizations in one UI. Handle GitHub API pagination so alerts are not silently omitted.
+- Allow sorting each alert data column in both directions. Preserve sorting through filters, pagination, refreshes, and CSV exports.
+- Allow accepting individual alert risks locally and reopening them. Persist these deployment-wide decisions in SQLite by repository and alert number. Keep GitHub read-only and provide an Accepted view.
 - Treat PATs as secrets. Do not expose them in logs, error messages, or alert responses.
 - Persist PATs and connection configuration in SQLite, shared across the deployment. Encrypt PATs at rest and retain the encryption key alongside deployment data unless an external key file is configured.
 - Provide a Dockerfile and sample Docker Compose deployment with persistent storage. Keep deployment setup simple.

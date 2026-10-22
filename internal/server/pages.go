@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/csv"
 	"html/template"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/thelicato/ghal/internal/github"
+	"github.com/thelicato/ghal/internal/storage"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -26,19 +28,45 @@ type connectionView struct {
 
 type filters struct {
 	Query, State, Severity, Owner, Ecosystem string
+	Sort, Direction                          string
 	Page                                     int
 }
 
 type alertView struct {
 	github.Alert
 	Link, Updated, UpdatedTitle string
+	AcceptedAt                  time.Time
 }
+
+func (a alertView) Accepted() bool { return !a.AcceptedAt.IsZero() }
 
 type summaryView struct {
 	Severity string
 	Count    int
 	Selected bool
 	URL      string
+}
+
+type sortHeader struct {
+	Label, URL, Order, Indicator string
+}
+
+func (p pageData) SortHeaders() []sortHeader {
+	var headers []sortHeader
+	for _, column := range []struct{ key, label string }{
+		{"dependency", "Dependency / vulnerability"}, {"repository", "Repository"},
+		{"severity", "Severity"}, {"state", "State"}, {"updated", "Updated"},
+	} {
+		order := p.SortOrder(column.key)
+		indicator := "↕"
+		if order == "ascending" {
+			indicator = "↑"
+		} else if order == "descending" {
+			indicator = "↓"
+		}
+		headers = append(headers, sortHeader{column.label, p.URL("sort", column.key), order, indicator})
+	}
+	return headers
 }
 
 type formValues struct {
@@ -55,6 +83,7 @@ type pageData struct {
 	Owners, Ecosystems                         []string
 	Summaries                                  []summaryView
 	Counts                                     map[string]int
+	Accepted                                   map[storage.AlertID]time.Time
 	Matches                                    []github.Alert
 	Rows                                       []alertView
 	Total, MatchCount, Page, Pages, Start, End int
@@ -80,7 +109,7 @@ func templateFunctions() template.FuncMap {
 func readFilters(r *http.Request) filters {
 	q := r.URL.Query()
 	state := q.Get("state")
-	if !slices.Contains([]string{"open", "fixed", "dismissed", "all"}, state) {
+	if !slices.Contains([]string{"open", "accepted", "fixed", "dismissed", "all"}, state) {
 		state = "open"
 	}
 	severity := q.Get("severity")
@@ -88,12 +117,27 @@ func readFilters(r *http.Request) filters {
 		severity = "all"
 	}
 	page, _ := strconv.Atoi(q.Get("page"))
-	return filters{Query: q.Get("q"), State: state, Severity: severity, Owner: q.Get("owner"), Ecosystem: q.Get("ecosystem"), Page: max(1, page)}
+	column := q.Get("sort")
+	if !slices.Contains([]string{"dependency", "repository", "severity", "state", "updated"}, column) {
+		column = "severity"
+	}
+	direction := q.Get("direction")
+	if direction != "asc" && direction != "desc" {
+		direction = defaultDirection(column)
+	}
+	return filters{Query: q.Get("q"), State: state, Severity: severity, Owner: q.Get("owner"), Ecosystem: q.Get("ecosystem"), Sort: column, Direction: direction, Page: max(1, page)}
+}
+
+func defaultDirection(column string) string {
+	if column == "severity" || column == "updated" {
+		return "desc"
+	}
+	return "asc"
 }
 
 func (p pageData) URL(key, value string) string {
 	q := url.Values{}
-	for k, v := range map[string]string{"q": p.Filters.Query, "state": p.Filters.State, "severity": p.Filters.Severity, "owner": p.Filters.Owner, "ecosystem": p.Filters.Ecosystem} {
+	for k, v := range map[string]string{"q": p.Filters.Query, "state": p.Filters.State, "severity": p.Filters.Severity, "owner": p.Filters.Owner, "ecosystem": p.Filters.Ecosystem, "sort": p.Filters.Sort, "direction": p.Filters.Direction} {
 		if v != "" && v != "all" {
 			q.Set(k, v)
 		}
@@ -110,6 +154,15 @@ func (p pageData) URL(key, value string) string {
 		} else {
 			q.Set("severity", value)
 		}
+	case "sort":
+		q.Set("sort", value)
+		direction := defaultDirection(value)
+		if p.Filters.Sort == value && p.Filters.Direction == "asc" {
+			direction = "desc"
+		} else if p.Filters.Sort == value {
+			direction = "asc"
+		}
+		q.Set("direction", direction)
 	default:
 		if key != "" {
 			q.Set(key, value)
@@ -119,6 +172,22 @@ func (p pageData) URL(key, value string) string {
 }
 
 func (p pageData) PageURL(number int) string { return p.URL("page", strconv.Itoa(number)) }
+
+func (p pageData) AlertActionURL(action string) string {
+	u, _ := url.Parse(p.PageURL(p.Page))
+	u.Path = "/alerts/" + action
+	return u.String()
+}
+
+func (p pageData) SortOrder(column string) string {
+	if p.Filters.Sort != column {
+		return "none"
+	}
+	if p.Filters.Direction == "desc" {
+		return "descending"
+	}
+	return "ascending"
+}
 
 func (p pageData) RefreshURL() string {
 	u, _ := url.Parse(p.URL("", ""))
@@ -143,12 +212,12 @@ func githubLink(value string) string {
 	return u.String()
 }
 
-func makePage(r *http.Request, connections []github.Connection, result github.Result, loaded, refreshing bool) pageData {
+func makePage(r *http.Request, connections []github.Connection, result github.Result, loaded, refreshing bool, accepted map[storage.AlertID]time.Time) pageData {
 	p := pageData{
 		Title: "Dependabot alerts", View: "alerts", BasePath: "/", Filters: readFilters(r),
 		Loaded: loaded, Refreshing: refreshing, FetchedAt: result.FetchedAt,
 		Errors: result.Errors, SourceLabels: make(map[string]string), Counts: make(map[string]int),
-		Total: len(result.Alerts),
+		Total: len(result.Alerts), Accepted: accepted,
 	}
 	for _, conn := range connections {
 		p.Connections = append(p.Connections, connectionView{conn.ID, conn.Label, conn.Login, conn.Accounts, conn.Organizations})
@@ -158,17 +227,29 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 	severityCounts := make(map[string]int)
 	search := strings.ToLower(strings.TrimSpace(p.Filters.Query))
 	for _, alert := range result.Alerts {
+		_, isAccepted := accepted[storage.AlertKey(alert.Repository.FullName, alert.Number)]
 		state := alert.State
 		if state == "auto_dismissed" {
 			state = "dismissed"
 		}
-		p.Counts[state]++
-		if alert.State == "open" {
+		if isAccepted {
+			p.Counts["accepted"]++
+		}
+		if state != "open" || !isAccepted {
+			p.Counts[state]++
+		}
+		if alert.State == "open" && !isAccepted {
 			severityCounts[alert.SecurityAdvisory.Severity]++
 		}
 		owners[alert.Repository.Owner.Login] = true
 		ecosystems[alert.Dependency.Package.Ecosystem] = true
-		if p.Filters.State != "all" && p.Filters.State != state {
+		if p.Filters.State == "accepted" && !isAccepted {
+			continue
+		}
+		if p.Filters.State == "open" && isAccepted {
+			continue
+		}
+		if p.Filters.State != "all" && p.Filters.State != "accepted" && p.Filters.State != state {
 			continue
 		}
 		if p.Filters.Severity != "all" && p.Filters.Severity != alert.SecurityAdvisory.Severity {
@@ -194,6 +275,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 	}
 	sort.Strings(p.Owners)
 	sort.Strings(p.Ecosystems)
+	sortAlerts(p.Matches, p.Filters, accepted)
 	for _, severity := range []string{"critical", "high", "medium", "low"} {
 		p.Summaries = append(p.Summaries, summaryView{severity, severityCounts[severity], p.Filters.Severity == severity, p.URL("stat", severity)})
 	}
@@ -204,7 +286,7 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 	if p.MatchCount > 0 {
 		p.Start = (p.Page-1)*pageSize + 1
 		for _, alert := range p.Matches[p.Start-1 : p.End] {
-			view := alertView{Alert: alert, Link: githubLink(alert.HTMLURL), Updated: "Unknown"}
+			view := alertView{Alert: alert, Link: githubLink(alert.HTMLURL), Updated: "Unknown", AcceptedAt: accepted[storage.AlertKey(alert.Repository.FullName, alert.Number)]}
 			if updated, err := time.Parse(time.RFC3339, alert.UpdatedAt); err == nil {
 				view.Updated = updated.Format("02 Jan 2006")
 				view.UpdatedTitle = updated.UTC().Format("02 Jan 2006 15:04 UTC")
@@ -213,6 +295,55 @@ func makePage(r *http.Request, connections []github.Connection, result github.Re
 		}
 	}
 	return p
+}
+
+func sortAlerts(alerts []github.Alert, f filters, accepted map[storage.AlertID]time.Time) {
+	severity := map[string]int{"critical": 4, "high": 3, "medium": 2, "low": 1}
+	textCompare := func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) }
+	updated := func(value string) time.Time {
+		t, _ := time.Parse(time.RFC3339, value)
+		return t
+	}
+	state := func(a github.Alert) string {
+		if _, ok := accepted[storage.AlertKey(a.Repository.FullName, a.Number)]; ok {
+			return "accepted"
+		}
+		if a.State == "auto_dismissed" {
+			return "auto-dismissed"
+		}
+		return a.State
+	}
+	slices.SortStableFunc(alerts, func(a, b github.Alert) int {
+		var order int
+		switch f.Sort {
+		case "dependency":
+			order = textCompare(a.Dependency.Package.Name, b.Dependency.Package.Name)
+		case "repository":
+			order = textCompare(a.Repository.FullName, b.Repository.FullName)
+		case "severity":
+			order = cmp.Compare(severity[a.SecurityAdvisory.Severity], severity[b.SecurityAdvisory.Severity])
+		case "state":
+			order = textCompare(state(a), state(b))
+		case "updated":
+			order = updated(a.UpdatedAt).Compare(updated(b.UpdatedAt))
+		}
+		if f.Direction == "desc" {
+			order = -order
+		}
+		if order != 0 {
+			return order
+		}
+		// Stable ties keep alerts in the same position across refreshes and pages.
+		if f.Sort == "severity" {
+			if order = updated(b.UpdatedAt).Compare(updated(a.UpdatedAt)); order != 0 {
+				return order
+			}
+		}
+		if order = textCompare(a.Repository.FullName, b.Repository.FullName); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.Number, b.Number)
+	})
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data pageData) {
@@ -228,8 +359,8 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data pag
 }
 
 func (s *Server) currentPage(r *http.Request) pageData {
-	connections, result, loaded, refreshing := s.state.pageSnapshot()
-	return makePage(r, connections, result, loaded, refreshing)
+	connections, result, loaded, refreshing, accepted := s.state.pageSnapshot()
+	return makePage(r, connections, result, loaded, refreshing, accepted)
 }
 
 func (s *Server) overviewPage(w http.ResponseWriter, r *http.Request) {
@@ -285,8 +416,7 @@ func (s *Server) removeConnectionPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) refreshPage(w http.ResponseWriter, r *http.Request) {
 	if _, failure := s.refresh(r.Context()); failure != nil {
-		connections, result, loaded, refreshing := s.state.pageSnapshot()
-		p := makePage(r, connections, result, loaded, refreshing)
+		p := s.currentPage(r)
 		p.Error = failure.message
 		s.render(w, failure.status, "overview", p)
 		return
@@ -313,7 +443,7 @@ func writeCSV(w http.ResponseWriter, p pageData) {
 	// Stage the complete file before writing headers, and escape spreadsheet formulas.
 	var buffer bytes.Buffer
 	writer := csv.NewWriter(&buffer)
-	_ = writer.Write([]string{"Repository", "Package", "Ecosystem", "Severity", "State", "Summary", "Advisory", "Fixed version", "URL"})
+	_ = writer.Write([]string{"Repository", "Package", "Ecosystem", "Severity", "State", "Summary", "Advisory", "Fixed version", "URL", "Risk accepted", "Accepted at"})
 	for _, alert := range p.Matches {
 		advisory := alert.SecurityAdvisory.CVEID
 		if advisory == "" {
@@ -323,7 +453,11 @@ func writeCSV(w http.ResponseWriter, p pageData) {
 		if alert.SecurityVulnerability.FirstPatchedVersion != nil {
 			patch = alert.SecurityVulnerability.FirstPatchedVersion.Identifier
 		}
-		row := []string{alert.Repository.FullName, alert.Dependency.Package.Name, alert.Dependency.Package.Ecosystem, alert.SecurityAdvisory.Severity, alert.State, alert.SecurityAdvisory.Summary, advisory, patch, githubLink(alert.HTMLURL)}
+		accepted, at := "No", ""
+		if timestamp, ok := p.Accepted[storage.AlertKey(alert.Repository.FullName, alert.Number)]; ok {
+			accepted, at = "Yes", timestamp.UTC().Format(time.RFC3339)
+		}
+		row := []string{alert.Repository.FullName, alert.Dependency.Package.Name, alert.Dependency.Package.Ecosystem, alert.SecurityAdvisory.Severity, alert.State, alert.SecurityAdvisory.Summary, advisory, patch, githubLink(alert.HTMLURL), accepted, at}
 		for i, value := range row {
 			trimmed := strings.TrimSpace(value)
 			if strings.HasPrefix(value, "\t") || strings.HasPrefix(value, "\r") || strings.HasPrefix(value, "\n") || (trimmed != "" && strings.ContainsRune("=+-@", rune(trimmed[0]))) {

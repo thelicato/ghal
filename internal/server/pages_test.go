@@ -135,7 +135,7 @@ func TestServerSideFilteringPaginationAndExport(t *testing.T) {
 	result.Alerts = append(result.Alerts, pageAlert("dismissed-package", "acme/project", "low", "auto_dismissed"))
 	result.Alerts = append(result.Alerts, pageAlert("fixed-package", "acme/project", "critical", "fixed"))
 	r := httptest.NewRequest("GET", "/?state=open&page=2&q=package&severity=high&owner=octocat&ecosystem=npm", nil)
-	p := makePage(r, nil, result, true, false)
+	p := makePage(r, nil, result, true, false, nil)
 	if p.MatchCount != 45 || len(p.Rows) != 20 || p.Page != 2 || p.Start != 21 || p.End != 40 || p.Pages != 3 {
 		t.Fatalf("wrong server pagination: count=%d rows=%d page=%d start=%d end=%d", p.MatchCount, len(p.Rows), p.Page, p.Start, p.End)
 	}
@@ -150,12 +150,12 @@ func TestServerSideFilteringPaginationAndExport(t *testing.T) {
 		t.Fatal("pagination dropped active filters")
 	}
 	r = httptest.NewRequest("GET", "/?state=dismissed&q=acme", nil)
-	p = makePage(r, nil, result, true, false)
+	p = makePage(r, nil, result, true, false, nil)
 	if len(p.Rows) != 1 || p.Rows[0].State != "auto_dismissed" {
 		t.Fatal("automatically dismissed alerts were omitted")
 	}
 	r = httptest.NewRequest("GET", "/?state=fixed&q=CVE-2026-12345&page=9999", nil)
-	p = makePage(r, nil, result, true, false)
+	p = makePage(r, nil, result, true, false, nil)
 	if len(p.Rows) != 1 || p.Page != 1 {
 		t.Fatal("CVE filtering or page bounds failed")
 	}
@@ -228,7 +228,7 @@ func TestConnectionChangesDiscardInFlightResults(t *testing.T) {
 func TestNativeFormsRejectCrossOriginWrites(t *testing.T) {
 	client := &fakeGitHub{}
 	handler := newTestServer(t, client)
-	for _, path := range []string{"/connections", "/refresh", "/connections/example/delete"} {
+	for _, path := range []string{"/connections", "/refresh", "/connections/example/delete", "/alerts/accept", "/alerts/reopen"} {
 		req := httptest.NewRequest("POST", "http://localhost"+path, strings.NewReader("token=test-secret"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", "https://evil.example")

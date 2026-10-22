@@ -75,7 +75,7 @@ h2 { font-size: 18px; font-weight: 600; letter-spacing: -.2px; }
 .severity-low.severity-badge { color: #426c92; background: #eff5fc; border-color: #dce6f0; }
 .alerts-card { overflow: hidden; min-width: 0; }
 .alerts-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 0 22px; border-bottom: 1px solid var(--border); }
-.state-tabs { display: flex; gap: 24px; }
+.state-tabs { display: flex; gap: 24px; overflow-x: auto; }
 .state-tabs a { display: flex; align-items: center; gap: 7px; padding: 19px 0 17px; border-bottom: 2px solid transparent; margin-bottom: -1px; color: var(--muted-foreground); font-size: 14px; white-space: nowrap; }
 .state-tabs a[aria-current] { border-color: var(--primary); color: var(--primary); font-weight: 600; }
 .tab-count { background: var(--muted); border-radius: 4px; min-width: 23px; text-align: center; padding: 0 5px; font-size: 12px; font-weight: 500; }
@@ -90,6 +90,9 @@ h2 { font-size: 18px; font-weight: 600; letter-spacing: -.2px; }
 .table-scroll { position: relative; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th { padding: 12px 15px; font-size: 13px; font-weight: 550; color: var(--muted-foreground); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: #f8f9f5; white-space: nowrap; }
+.sort-link { display: inline-flex; align-items: center; gap: 7px; padding: 4px 0; }
+.sort-link:hover, th[aria-sort="ascending"], th[aria-sort="descending"] { color: var(--primary); }
+.sort-indicator { font-size: 16px; }
 td { padding: 20px 15px; border-bottom: 1px solid #eaede5; font-size: 14px; vertical-align: top; }
 th:first-child, td:first-child { padding-left: 22px; }
 th:last-child, td:last-child { padding-right: 22px; }
@@ -108,6 +111,10 @@ tbody tr:hover { background: #fdfefa; }
 .state-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #939c89; flex-shrink: 0; }
 .state-open .state-dot { background: #6b9454; }
 .state-fixed .state-dot { background: #8b70ad; }
+.accepted-badge { color: #365a78; background: #eef5fb; border-color: #d4e3f0; }
+.github-state { display: block; margin-top: 5px; color: var(--muted-foreground); font-size: 13px; white-space: nowrap; }
+.alert-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.alert-actions .button { font-size: 14px; }
 .updated-cell { white-space: nowrap; font-size: 13px; color: var(--muted-foreground); padding-top: 23px; }
 .github-link { display: inline-flex; padding: 3px; border-radius: 4px; color: #708366; }
 .github-link:hover { background: var(--accent); color: var(--primary); }

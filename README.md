@@ -19,7 +19,7 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Add a connection with a PAT
 docker compose -f compose.example.yaml up -d --build
 ```
 
-Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Set `GHAL_PORT` when running Compose to use a different host port. The sample runs as a non-root user, includes an HTTP and SQLite healthcheck, and stores the database and generated encryption key in the `ghal-data` named volume. Container restarts and recreation retain this volume. `docker compose -f compose.example.yaml down` also retains it; adding `-v` deletes saved connections and the key.
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Set `GHAL_PORT` when running Compose to use a different host port. The sample runs as a non-root user, includes an HTTP and SQLite healthcheck, and stores the database and generated encryption key in the `ghal-data` named volume. Container restarts and recreation retain this volume. `docker compose -f compose.example.yaml down` also retains it; adding `-v` deletes saved connections, accepted decisions, and the key.
 
 To build and run without Compose:
 
@@ -34,11 +34,15 @@ docker run -d --name ghal -p 127.0.0.1:8080:8080 -v ghal-data:/data ghal
 - Fetch every page of repositories and alerts, including open, fixed, dismissed, and automatically dismissed alerts.
 - Deduplicate alerts shared by multiple connections and retain the newest version.
 - Search packages, repositories, advisories, and CVEs. Filter by severity, state, source, and ecosystem.
+- Click a column heading to sort in either direction. Sorting applies across all pages and to CSV exports.
+- Accept individual alert risks locally and reopen them from the Accepted view. Decisions are shared across the deployment and survive restarts.
 - Inspect vulnerable versions and available patches, open alerts on GitHub, and export the filtered results to CSV.
 - Show per-source failures and preserve successfully fetched pages when another page or source fails.
 - Render pages, submit connection forms, filter, paginate, and export CSV without JavaScript. A small optional script adds submit feedback.
 
 Adding or removing a connection refreshes the cached alerts. Use **Refresh alerts** to fetch changes from GitHub. Search, filters, pagination, and CSV export use the deployment's latest result without repeating GitHub requests. Changing connections invalidates that result; an in-flight refresh cannot restore alerts from a disconnected source. Alerts are cached in memory, so refresh them after restarting the application.
+
+**Accept risk** records a decision in ghal without dismissing the alert on GitHub. Accepted alerts leave the Open view and severity counts but remain in Accepted and All, with their original GitHub state visible. Fixed and Dismissed still show their respective GitHub states, including previously accepted alerts. Reopen removes local acceptance. Decisions follow the repository and alert number across PATs, refreshes, and reconnections; other alerts for the same vulnerability remain unaffected. CSV exports include acceptance status and time. The JSON alerts endpoint continues to return GitHub data without local acceptance metadata. Sample alerts cannot be accepted.
 
 ## GitHub access
 
@@ -48,7 +52,7 @@ Personal account discovery uses the authenticated user's owned and collaborator 
 
 ## Storage and access
 
-Connections and PATs are shared across the deployment and persist in SQLite. The default local database is `data/ghal.db`. PATs are encrypted with AES-256-GCM using a generated 32-byte key at `data/ghal.db.key`. Database and generated key files use owner-only permissions. PATs are never included in connection responses or HTML. The key is kept separately from the encrypted database; access to both files permits decryption.
+Connections, PATs, and accepted decisions are shared across the deployment and persist in SQLite. The default local database is `data/ghal.db`. PATs are encrypted with AES-256-GCM using a generated 32-byte key at `data/ghal.db.key`. Database and generated key files use owner-only permissions. PATs are never included in connection responses or HTML. The key is kept separately from the encrypted database; access to both files permits decryption.
 
 Back up the database and its original key together while the application is stopped, or use SQLite-aware backup tooling. Restore both files together. An existing database will not start with a missing or incorrect key. To keep the key outside the data directory, set `GHAL_KEY_FILE` to a mounted key file containing exactly 32 raw bytes. Keep that key when recreating the container or restoring a backup.
 
@@ -83,7 +87,7 @@ make test
 make build
 ```
 
-Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, CSV export, cross-origin writes, and concurrent refreshes. Tests use mock GitHub responses and do not require a real PAT.
+Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, sorting, persistent risk acceptance and reopening, CSV export, cross-origin writes, and concurrent refreshes. Tests use mock GitHub responses and do not require a real PAT.
 
 ## Releases
 
