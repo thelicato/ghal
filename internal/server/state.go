@@ -12,15 +12,17 @@ import (
 
 // All browsers use the same connections and alert cache for this deployment.
 type state struct {
-	mu            sync.Mutex
-	connections   []github.Connection
-	accepted      map[storage.AlertID]time.Time
-	refreshing    bool
-	refreshCancel context.CancelFunc
-	result        github.Result
-	loaded        bool
-	revision      uint64
-	version       uint64
+	mu               sync.Mutex
+	connections      []github.Connection
+	accepted         map[storage.AlertID]time.Time
+	refreshing       bool
+	refreshCancel    context.CancelFunc
+	result           github.Result
+	loaded           bool
+	revision         uint64
+	version          uint64
+	syncInterval     time.Duration
+	lastSyncFinished time.Time
 }
 
 func (s *state) snapshot() []github.Connection {

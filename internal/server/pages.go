@@ -100,6 +100,7 @@ type pageData struct {
 	FetchedAt                                  time.Time
 	Form                                       formValues
 	Version                                    uint64
+	Settings                                   settingsView
 }
 
 func (p pageData) SelectableCount() int {

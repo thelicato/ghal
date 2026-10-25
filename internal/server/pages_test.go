@@ -41,7 +41,7 @@ func pageAlert(pkg, repo, severity, state string) github.Alert {
 
 func TestPagesRenderWithoutFrontendBuild(t *testing.T) {
 	handler := newTestServer(t, &fakeGitHub{})
-	for path, want := range map[string]string{"/": "No connections configured", "/connections": `name="token"`, "/demo": "Prototype pollution in lodash"} {
+	for path, want := range map[string]string{"/": "No connections configured", "/connections": `name="token"`, "/settings": `name="sync_interval"`, "/demo": "Prototype pollution in lodash"} {
 		res := request(handler, "GET", path, "", nil)
 		if res.Code != 200 || !strings.Contains(res.Body.String(), want) {
 			t.Fatalf("%s did not render: status=%d body=%s", path, res.Code, res.Body.String())
@@ -243,7 +243,7 @@ func TestConnectionChangesDiscardInFlightResults(t *testing.T) {
 func TestNativeFormsRejectCrossOriginWrites(t *testing.T) {
 	client := &fakeGitHub{}
 	handler := newTestServer(t, client)
-	for _, path := range []string{"/connections", "/refresh", "/connections/example/delete", "/alerts/accept", "/alerts/accept-selected", "/alerts/reopen"} {
+	for _, path := range []string{"/connections", "/settings", "/refresh", "/connections/example/delete", "/alerts/accept", "/alerts/accept-selected", "/alerts/reopen"} {
 		req := httptest.NewRequest("POST", "http://localhost"+path, strings.NewReader("token=test-secret"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", "https://evil.example")

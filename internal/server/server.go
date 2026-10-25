@@ -29,15 +29,16 @@ type GitHub interface {
 }
 
 type Server struct {
-	github    GitHub
-	state     *state
-	store     *storage.Store
-	templates *template.Template
-	router    http.Handler
-	ctx       context.Context
-	cancel    context.CancelFunc
-	jobs      sync.WaitGroup
-	closed    bool // Protected by state.mu.
+	github       GitHub
+	state        *state
+	store        *storage.Store
+	templates    *template.Template
+	router       http.Handler
+	ctx          context.Context
+	cancel       context.CancelFunc
+	jobs         sync.WaitGroup
+	closed       bool // Protected by state.mu.
+	autoSyncWake chan struct{}
 }
 
 func New(client GitHub, store *storage.Store) (*Server, error) {
@@ -49,11 +50,16 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	interval, err := store.SyncInterval(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
-		github:    client,
-		state:     &state{connections: connections, accepted: accepted},
-		store:     store,
-		templates: template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
+		github:       client,
+		state:        &state{connections: connections, accepted: accepted, syncInterval: interval, lastSyncFinished: time.Now().UTC()},
+		store:        store,
+		autoSyncWake: make(chan struct{}, 1),
+		templates:    template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	r := chi.NewRouter()
@@ -82,6 +88,8 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(assets)))
 	r.Get("/", s.overviewPage)
 	r.Get("/connections", s.connectionsPage)
+	r.Get("/settings", s.settingsPage)
+	r.Post("/settings", s.saveSettingsPage)
 	r.Post("/connections", s.createConnectionPage)
 	r.Post("/connections/{id}/delete", s.removeConnectionPage)
 	r.Post("/refresh", s.refreshPage)
@@ -95,6 +103,8 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	if len(connections) > 0 {
 		s.requestRefresh()
 	}
+	s.jobs.Add(1)
+	go s.autoSyncLoop()
 	return s, nil
 }
 

@@ -1,0 +1,23 @@
+{{define "settings"}}
+{{template "head" .}}
+  <section class="page-heading">
+    <div><h1>Settings</h1><p class="page-meta">Configure automatic alert refreshes.</p></div>
+  </section>
+  {{template "page-error" .}}
+  {{if .Settings.Saved}}<div class="notice sync-status" role="status">Settings saved.</div>{{end}}
+  <section class="card settings-card" aria-labelledby="resync-title">
+    <h2 id="resync-title">Automatic resync</h2>
+    <p class="muted">Refresh all configured connections in the background, even when no browser is open. This setting is shared across the deployment.</p>
+    <form method="post" action="/settings" data-pending="Saving settings...">
+      <div class="field">
+        <label for="sync-interval">Resync interval</label>
+        <input class="input" id="sync-interval" name="sync_interval" value="{{.Settings.SyncInterval}}" maxlength="64" required spellcheck="false" autocomplete="off" aria-describedby="sync-interval-help">
+        <p class="field-help" id="sync-interval-help">Use a duration such as 30m, 1h, or 2h30m. Minimum 1m. Default 1h.</p>
+      </div>
+      <p class="field-help">The interval starts after each completed refresh, including manual refreshes. Changes apply immediately.</p>
+      <button class="button" type="submit">Save settings</button>
+      <p class="submit-status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+{{template "foot" .}}
+{{end}}

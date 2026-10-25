@@ -44,6 +44,7 @@ func (s *Server) startRefreshLocked() {
 		return
 	}
 	s.state.refreshing = true
+	s.notifyAutoSync()
 	s.jobs.Add(1)
 	go s.refreshLoop()
 }
@@ -78,8 +79,10 @@ func (s *Server) refreshLoop() {
 			state.result = result
 			state.loaded = true
 			state.version++
+			state.lastSyncFinished = time.Now().UTC()
 		}
 		state.refreshing = false
+		s.notifyAutoSync()
 		state.mu.Unlock()
 		return
 	}

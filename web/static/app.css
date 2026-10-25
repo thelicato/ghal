@@ -154,6 +154,10 @@ tbody tr:hover { background: #fdfefa; }
 .connection-sources dd { display: flex; flex-wrap: wrap; gap: 6px; }
 .connection-empty p { margin-top: 12px; font-size: 15px; line-height: 1.7; }
 .connection-form { scroll-margin-top: 20px; }
+.settings-card { max-width: 640px; padding: 25px; }
+.settings-card > p { margin-top: 12px; font-size: 14px; }
+.settings-card form { display: flex; flex-direction: column; gap: 20px; margin-top: 24px; }
+.settings-card form > .button { align-self: flex-start; }
 .connection-form h2 { margin-bottom: 23px; }
 .connection-form form { display: flex; flex-direction: column; gap: 20px; }
 .connection-form form > .button { align-self: flex-start; }
@@ -185,10 +189,10 @@ tbody tr:hover { background: #fdfefa; }
   .connection-form { order: -1; }
 }
 @media (max-width: 560px) {
-  .header-inner { padding: 0 16px; min-height: 66px; gap: 30px; }
+  .header-inner { padding: 0 16px; min-height: 66px; gap: 20px; flex-wrap: wrap; }
   .brand { font-size: 23px; gap: 7px; }
   .brand svg { width: 26px; height: 26px; }
-  .header-inner nav { gap: 22px; }
+  .header-inner nav { gap: 18px; min-height: 48px; flex-wrap: wrap; }
   .header-inner nav a { font-size: 14px; }
   .container { padding: 25px 16px; }
   h1 { font-size: 26px; }
