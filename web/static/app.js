@@ -111,3 +111,24 @@ if (syncStatus) {
   }
   window.setTimeout(checkRefresh, wasRefreshing ? 1000 : 10000);
 }
+
+const telegramStatus = document.querySelector("[data-telegram-status]");
+if (telegramStatus) {
+  const testButton = document.querySelector("[data-telegram-test]");
+  async function checkTelegram() {
+    let delay = 10000;
+    try {
+      const response = await fetch("/api/telegram/status", { cache: "no-store", signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error("Status unavailable");
+      const status = await response.json();
+      telegramStatus.textContent = status.status;
+      telegramStatus.dataset.error = String(Boolean(status.last_error));
+      testButton.disabled = !status.configured || status.pending;
+      if (status.pending) delay = 2000;
+    } catch {
+      telegramStatus.textContent = "Could not check Telegram delivery status. Reload this page to check it.";
+    }
+    window.setTimeout(checkTelegram, delay);
+  }
+  window.setTimeout(checkTelegram, 1000);
+}

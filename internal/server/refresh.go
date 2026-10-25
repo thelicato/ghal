@@ -78,8 +78,13 @@ func (s *Server) refreshLoop() {
 		if !s.closed {
 			state.result = result
 			state.loaded = true
+			state.resultRevision = revision
 			state.version++
 			state.lastSyncFinished = time.Now().UTC()
+			if state.telegram.Enabled && len(result.Errors) == 0 {
+				state.messagePending = &notificationJob{result: result, scope: notificationScope(state.connections), revision: revision, generation: state.telegramGeneration}
+				s.wakeMessages()
+			}
 		}
 		state.refreshing = false
 		s.notifyAutoSync()

@@ -1,10 +1,12 @@
 {{define "settings"}}
 {{template "head" .}}
   <section class="page-heading">
-    <div><h1>Settings</h1><p class="page-meta">Configure automatic alert refreshes.</p></div>
+    <div><h1>Settings</h1><p class="page-meta">Configure automatic alert refreshes and notifications.</p></div>
   </section>
   {{template "page-error" .}}
   {{if .Settings.Saved}}<div class="notice sync-status" role="status">Settings saved.</div>{{end}}
+  {{if .Settings.TelegramNotice}}<div class="notice sync-status" role="status">{{.Settings.TelegramNotice}}</div>{{end}}
+  <div class="settings-layout">
   <section class="card settings-card" aria-labelledby="resync-title">
     <h2 id="resync-title">Automatic resync</h2>
     <p class="muted">Refresh all configured connections in the background, even when no browser is open. This setting is shared across the deployment.</p>
@@ -19,5 +21,30 @@
       <p class="submit-status" role="status" aria-live="polite"></p>
     </form>
   </section>
+  <section class="card settings-card" aria-labelledby="telegram-title">
+    <h2 id="telegram-title">Telegram notifications</h2>
+    <p class="muted">Send a summary when a complete resync finds new, updated, or removed alerts. Local risk acceptance does not send a notification.</p>
+    <form method="post" action="/settings/telegram" data-pending="Saving Telegram settings...">
+      <label class="settings-toggle"><input class="checkbox" type="checkbox" name="enabled" {{if .Settings.Telegram.Enabled}}checked{{end}}>Enable notifications after resync</label>
+      <div class="field">
+        <label for="telegram-token">Bot token</label>
+        <input class="input" id="telegram-token" name="bot_token" type="password" autocomplete="new-password" maxlength="512" spellcheck="false" aria-describedby="telegram-token-help">
+        <p class="field-help" id="telegram-token-help">{{if .Settings.Telegram.Configured}}A bot token is saved. Leave blank to keep it.{{else}}Create a bot with <a class="text-link" href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> and enter its token.{{end}} Tokens are encrypted in SQLite.</p>
+      </div>
+      <div class="field">
+        <label for="telegram-chat">Chat ID or channel username</label>
+        <input class="input" id="telegram-chat" name="chat_id" value="{{.Settings.Telegram.ChatID}}" maxlength="64" placeholder="123456789, -1001234567890, or @channel" autocomplete="off" spellcheck="false" aria-describedby="telegram-chat-help">
+        <p class="field-help" id="telegram-chat-help">Start your bot in Telegram, or add it to the target group or channel with permission to send messages. Find the chat ID in <a class="text-link" href="https://core.telegram.org/bots/api#getupdates" target="_blank" rel="noreferrer">getUpdates</a> under message.chat.id.</p>
+      </div>
+      <button class="button" type="submit">Save Telegram settings</button>
+    </form>
+    <div class="settings-actions">
+      <form method="post" action="/settings/telegram/test" data-pending="Queuing test..."><button class="button button-outline" type="submit" data-telegram-test {{if or (not .Settings.Telegram.Configured) .Settings.Telegram.Pending}}disabled{{end}}>Send test message</button></form>
+      <form method="post" action="/settings/telegram/disconnect" data-pending="Disconnecting..."><button class="button button-outline button-danger" type="submit" {{if not .Settings.Telegram.Configured}}disabled{{end}}>Disconnect Telegram</button></form>
+    </div>
+    <p class="telegram-delivery" role="status" aria-live="polite" data-telegram-status data-error="{{if .Settings.Telegram.LastError}}true{{else}}false{{end}}">{{.Settings.Telegram.Status}}</p>
+    <p class="field-help">Saving Telegram settings starts a new comparison from the latest complete results. If none are available, the first complete resync establishes the starting point without sending a message. Failed deliveries retry after a later successful resync.</p>
+  </section>
+  </div>
 {{template "foot" .}}
 {{end}}

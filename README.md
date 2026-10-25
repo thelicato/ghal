@@ -42,11 +42,16 @@ docker run -d --name ghal -p 127.0.0.1:8080:8080 -v ghal-data:/data ghal
 - Show per-source failures and preserve successfully fetched pages when another page or source fails.
 - Save connections and refresh alerts in the background without blocking page navigation.
 - Resync automatically at a configurable interval, defaulting to one hour.
+- Send Telegram summaries of new, updated, and removed alerts after successful resyncs.
 - Render pages, submit connection forms, filter, paginate, and export CSV without JavaScript. A small optional script checks background status and updates the page when work completes, preserving unsaved form edits.
 
 Adding a connection saves it immediately, then verifies its PAT and fetches alerts in the background. Verification failures appear in the alert dashboard and on Connections; use **Refresh alerts** to retry, or disconnect and add a replacement token. Removing a connection also starts a background refresh. Search, filters, pagination, and CSV export keep using cached alerts during a refresh. Disconnected sources are removed from the cache immediately, and connection changes cancel obsolete work and fetch the latest configuration. Alerts are cached in memory and fetched automatically on startup when saved connections exist. Background jobs continue if you navigate away and are cancelled when the application shuts down.
 
 Set the automatic resync interval on **Settings** using durations such as `30m`, `1h`, or `2h30m`. The default is `1h`, with a minimum of `1m`. Settings are shared, persist in SQLite, and apply without restarting. The interval starts after each completed refresh, including manual refreshes. Shortening it can trigger an overdue resync immediately. Automatic resync runs while connections are configured, even with no browser open.
+
+To connect Telegram, create a bot through [@BotFather](https://t.me/BotFather), start the bot or add it to your group or channel, and save its token and destination chat ID in **Settings**. Channel usernames such as `@mychannel` are also supported. A chat ID appears as `message.chat.id` in Telegram's [getUpdates response](https://core.telegram.org/bots/api#getupdates). Enable notifications and use **Send test message** to check delivery. Leave the token blank when editing to retain it, uncheck notifications to pause them, or disconnect to remove the saved credentials.
+
+Telegram compares complete resyncs, including manual and scheduled refreshes. It summarizes changes to alerts, such as state, severity, dependency, or patch details. Unchanged results, timestamp-only updates, and local risk acceptance send no message. Saving Telegram settings starts from the latest complete results; if none exist, the first complete resync establishes history silently. Changing GitHub connections also resets that comparison. Partial fetches do not replace the comparison or send notifications. Delivery runs separately from refreshing alerts; failed change notifications retry against the latest results after a later complete resync. History survives restarts. Summaries include totals and up to 12 alert details; alerts remain available in ghal.
 
 **Accept risk** records a decision in ghal without dismissing the alert on GitHub. Accepted alerts leave the Open view and severity counts but remain in Accepted and All, with their original GitHub state visible. Fixed and Dismissed still show their respective GitHub states, including previously accepted alerts. Reopen removes local acceptance. Decisions follow the repository and alert number across PATs, refreshes, and reconnections; other alerts for the same vulnerability remain unaffected. CSV exports include acceptance status and time. The JSON alerts endpoint continues to return GitHub data without local acceptance metadata. Sample alerts cannot be accepted.
 
@@ -60,7 +65,7 @@ Personal account discovery uses the authenticated user's owned and collaborator 
 
 ## Storage and access
 
-Connections, PATs, accepted decisions, and settings are shared across the deployment and persist in SQLite. The default local database is `data/ghal.db`. PATs are encrypted with AES-256-GCM using a generated 32-byte key at `data/ghal.db.key`. Database and generated key files use owner-only permissions. PATs are never included in connection responses or HTML. The key is kept separately from the encrypted database; access to both files permits decryption.
+Connections, PATs, accepted decisions, settings, and Telegram notification history are shared across the deployment and persist in SQLite. The default local database is `data/ghal.db`. PATs and Telegram credentials are encrypted with AES-256-GCM using a generated 32-byte key at `data/ghal.db.key`. Database and generated key files use owner-only permissions. Saved tokens are never included in responses or HTML. Notification history stores repository and alert identifiers with fingerprints, rather than full alert contents. The key is kept separately from the encrypted database; access to both files permits decryption.
 
 Back up the database and its original key together while the application is stopped, or use SQLite-aware backup tooling. Restore both files together. An existing database will not start with a missing or incorrect key. To keep the key outside the data directory, set `GHAL_KEY_FILE` to a mounted key file containing exactly 32 raw bytes. Keep that key when recreating the container or restoring a backup.
 
@@ -97,7 +102,7 @@ make test
 make build
 ```
 
-Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, sorting, persistent risk acceptance and reopening, CSV export, cross-origin writes, and background verification and refreshes, including cancellation and connection changes. Settings and automatic resync tests use a virtual clock to check scheduling, live interval changes, and shutdown. Tests use mock GitHub responses and do not require a real PAT.
+Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, sorting, persistent risk acceptance and reopening, CSV export, cross-origin writes, and background verification and refreshes, including cancellation and connection changes. Settings and automatic resync tests use a virtual clock to check scheduling, live interval changes, and shutdown. Telegram tests cover encrypted credentials, change detection, partial results, delivery retries, restart recovery, and cancellation. Tests use mock GitHub and Telegram responses and require no real credentials.
 
 ## Releases
 

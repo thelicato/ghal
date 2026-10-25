@@ -17,6 +17,7 @@ import (
 
 	"github.com/thelicato/ghal/internal/github"
 	"github.com/thelicato/ghal/internal/storage"
+	"github.com/thelicato/ghal/internal/telegram"
 	"github.com/thelicato/ghal/web"
 
 	"github.com/go-chi/chi/v5"
@@ -26,6 +27,10 @@ import (
 type GitHub interface {
 	Login(context.Context, string) (string, error)
 	Fetch(context.Context, []github.Connection) github.Result
+}
+
+type Messenger interface {
+	Send(context.Context, string, string, string) error
 }
 
 type Server struct {
@@ -39,9 +44,15 @@ type Server struct {
 	jobs         sync.WaitGroup
 	closed       bool // Protected by state.mu.
 	autoSyncWake chan struct{}
+	telegram     Messenger
+	messageWake  chan struct{}
 }
 
 func New(client GitHub, store *storage.Store) (*Server, error) {
+	return newServer(client, store, telegram.NewClient())
+}
+
+func newServer(client GitHub, store *storage.Store, messenger Messenger) (*Server, error) {
 	connections, err := store.List(context.Background())
 	if err != nil {
 		return nil, err
@@ -54,11 +65,17 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	telegramConfig, err := store.TelegramConfig(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
 		github:       client,
-		state:        &state{connections: connections, accepted: accepted, syncInterval: interval, lastSyncFinished: time.Now().UTC()},
+		state:        &state{connections: connections, accepted: accepted, syncInterval: interval, lastSyncFinished: time.Now().UTC(), telegram: telegramConfig},
 		store:        store,
 		autoSyncWake: make(chan struct{}, 1),
+		telegram:     messenger,
+		messageWake:  make(chan struct{}, 1),
 		templates:    template.Must(template.New("pages").Funcs(templateFunctions()).ParseFS(web.Assets, "templates/*.html")),
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -79,6 +96,7 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 		r.Delete("/connections/{id}", s.deleteConnection)
 		r.Get("/alerts", s.alerts)
 		r.Get("/status", s.syncStatus)
+		r.Get("/telegram/status", s.telegramStatusAPI)
 		r.Post("/refresh", s.refreshAPI)
 		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "API endpoint not found.")
@@ -90,6 +108,9 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	r.Get("/connections", s.connectionsPage)
 	r.Get("/settings", s.settingsPage)
 	r.Post("/settings", s.saveSettingsPage)
+	r.Post("/settings/telegram", s.saveTelegramPage)
+	r.Post("/settings/telegram/test", s.testTelegramPage)
+	r.Post("/settings/telegram/disconnect", s.disconnectTelegramPage)
 	r.Post("/connections", s.createConnectionPage)
 	r.Post("/connections/{id}/delete", s.removeConnectionPage)
 	r.Post("/refresh", s.refreshPage)
@@ -105,15 +126,18 @@ func New(client GitHub, store *storage.Store) (*Server, error) {
 	}
 	s.jobs.Add(1)
 	go s.autoSyncLoop()
+	s.jobs.Add(1)
+	go s.messageLoop()
 	return s, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.router.ServeHTTP(w, r) }
 
-// Close cancels background GitHub work and waits before SQLite can be closed.
+// Close cancels background jobs and waits before SQLite can be closed.
 func (s *Server) Close() {
 	s.state.mu.Lock()
 	s.closed = true
+	s.state.messagePending, s.state.testPending = nil, nil
 	s.cancel()
 	s.state.mu.Unlock()
 	s.jobs.Wait()

@@ -11,8 +11,10 @@ import (
 )
 
 type settingsView struct {
-	SyncInterval string
-	Saved        bool
+	SyncInterval   string
+	Saved          bool
+	Telegram       telegramView
+	TelegramNotice string
 }
 
 func formatSyncInterval(interval time.Duration) string {
@@ -36,6 +38,15 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, status i
 	p := s.currentPage(r)
 	p.Title, p.View, p.Error = "Settings", "settings", message
 	p.Settings = settingsView{SyncInterval: value, Saved: saved}
+	p.Settings.Telegram = s.telegramView()
+	switch r.URL.Query().Get("telegram") {
+	case "saved":
+		p.Settings.TelegramNotice = "Telegram settings saved."
+	case "test":
+		p.Settings.TelegramNotice = "Test message queued."
+	case "disconnected":
+		p.Settings.TelegramNotice = "Telegram disconnected."
+	}
 	s.render(w, status, "settings", p)
 }
 

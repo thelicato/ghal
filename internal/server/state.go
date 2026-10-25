@@ -8,21 +8,31 @@ import (
 
 	"github.com/thelicato/ghal/internal/github"
 	"github.com/thelicato/ghal/internal/storage"
+	"github.com/thelicato/ghal/internal/telegram"
 )
 
 // All browsers use the same connections and alert cache for this deployment.
 type state struct {
-	mu               sync.Mutex
-	connections      []github.Connection
-	accepted         map[storage.AlertID]time.Time
-	refreshing       bool
-	refreshCancel    context.CancelFunc
-	result           github.Result
-	loaded           bool
-	revision         uint64
-	version          uint64
-	syncInterval     time.Duration
-	lastSyncFinished time.Time
+	mu                 sync.Mutex
+	connections        []github.Connection
+	accepted           map[storage.AlertID]time.Time
+	refreshing         bool
+	refreshCancel      context.CancelFunc
+	result             github.Result
+	loaded             bool
+	revision           uint64
+	version            uint64
+	syncInterval       time.Duration
+	lastSyncFinished   time.Time
+	resultRevision     uint64
+	telegram           telegram.Config
+	telegramGeneration uint64
+	telegramBusy       bool
+	telegramError      string
+	telegramLastSent   time.Time
+	telegramCancel     context.CancelFunc
+	messagePending     *notificationJob
+	testPending        *notificationJob
 }
 
 func (s *state) snapshot() []github.Connection {
@@ -43,6 +53,9 @@ func (s *state) invalidateLocked() {
 	s.version++
 	if s.refreshCancel != nil {
 		s.refreshCancel()
+	}
+	if s.telegramCancel != nil {
+		s.telegramCancel()
 	}
 	// Keep cached results usable, but drop data belonging only to removed connections.
 	ids := make(map[string]bool, len(s.connections))
