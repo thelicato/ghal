@@ -44,6 +44,8 @@ jobs:
         run: make test
       - name: Vet
         run: go vet ./...
+      - name: Check dependency vulnerabilities
+        run: make vulncheck
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx

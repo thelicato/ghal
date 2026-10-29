@@ -4,7 +4,7 @@ A small Go web application that brings Dependabot alerts from multiple GitHub ac
 
 ## Run locally
 
-Requires Go 1.25+ and a C compiler such as GCC for the SQLite driver. Docker includes the required build tools.
+Requires Go 1.26.10+ and a C compiler such as GCC for the SQLite driver. Docker includes the required build tools.
 
 ```sh
 make build
@@ -100,10 +100,13 @@ The only Go dependencies are chi and `mattn/go-sqlite3`. The UI adapts shadcn/ui
 ```sh
 make test
 make build
+make vulncheck
 ```
+
+`make vulncheck` checks all required modules and the active Go toolchain against the Go vulnerability database, including dependencies whose vulnerable functions are not called. It requires network access and also runs before publishing releases. Keep Go updated to the latest security patch release.
 
 Go tests cover GitHub pagination and deduplication, partial results, encrypted SQLite storage and restart recovery, shared connections, credential safety, HTML escaping, native forms, filtering and pagination, sorting, persistent risk acceptance and reopening, CSV export, cross-origin writes, and background verification and refreshes, including cancellation and connection changes. Settings and automatic resync tests use a virtual clock to check scheduling, live interval changes, and shutdown. Telegram tests cover encrypted credentials, change detection, partial results, delivery retries, restart recovery, and cancellation. Tests use mock GitHub and Telegram responses and require no real credentials.
 
 ## Releases
 
-Set `VERSION` to the release version without a `v` prefix, commit the change, and push a matching tag such as `v0.1.0`. The release workflow checks the tag, runs Go tests and vet, publishes images for Linux amd64 and arm64 to `ghcr.io/thelicato/ghal`, and generates GitHub release notes from Conventional Commits. Stable tags also update `latest`; prerelease tags do not. Node.js is only used by the release-note tool in CI.
+Set `VERSION` to the release version without a `v` prefix, commit the change, and push a matching tag such as `v0.1.0`. The release workflow checks the tag, runs Go tests, vet, and vulnerability checks, publishes images for Linux amd64 and arm64 to `ghcr.io/thelicato/ghal`, and generates GitHub release notes from Conventional Commits. Stable tags also update `latest`; prerelease tags do not. Node.js is only used by the release-note tool in CI.
